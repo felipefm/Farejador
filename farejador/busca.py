@@ -2,29 +2,34 @@
 from itertools import combinations
 
 
-def montar_consultas(unigramas, frases, limite):
-    """Frases recorrentes primeiro (mais específicas), depois pares das palavras do topo.
+def montar_consultas(unigramas, frases, limite, titulos=()):
+    """Lista de (consulta, origem). Ordem de prioridade dentro do limite:
 
-    Palavra solta é evitada: "receita" sozinha devolve o YouTube inteiro.
+    1. títulos limpos de vídeos recentes representativos (até metade do limite);
+    2. frases recorrentes (bigramas/tags em vários vídeos), mais específicas que palavras soltas;
+    3. pares das palavras do topo; 4. palavra solta, só se ainda sobrar espaço.
     """
     consultas, cobertas = [], []
 
-    def add(texto, chaves):
-        if len(consultas) >= limite or texto in consultas:
+    def add(texto, chaves, origem):
+        if len(consultas) >= limite or texto.lower() in (q.lower() for q, _ in consultas):
             return
         # pula se repete exatamente as palavras de uma consulta já feita
-        if any(chaves <= c for c in cobertas):
+        if chaves and any(chaves <= c for c in cobertas):
             return
-        consultas.append(texto)
-        cobertas.append(chaves)
+        consultas.append((texto, origem))
+        if chaves:
+            cobertas.append(chaves)
 
-    for f in frases[: max(1, (limite + 1) // 2)]:
-        add(f["termo"], set(f["chave"].split()))
+    for t in list(titulos)[: limite // 2]:
+        add(t, set(), "título")  # título não "cobre" frases: a busca por frase é outra, mais ampla
+    for f in frases:
+        add(f["termo"], set(f["chave"].split()), "frase")
     top = unigramas[:7]
     for a, b in combinations(top, 2):
-        add(f"{a['termo']} {b['termo']}", {a["chave"], b["chave"]})
-    for u in top:  # último recurso, se faltaram combinações
-        add(u["termo"], {u["chave"]})
+        add(f"{a['termo']} {b['termo']}", {a["chave"], b["chave"]}, "par")
+    for u in top:
+        add(u["termo"], {u["chave"]}, "palavra")
     return consultas
 
 

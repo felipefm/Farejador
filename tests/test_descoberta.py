@@ -10,77 +10,154 @@ from tests.fakes import fabrica
 
 AGORA = 1_800_000_000
 DIA = 86400
-REF = "https://www.youtube.com/@ref"
+REF = "https://www.youtube.com/@LucianoPiresCafeBrasil"
+UCCONV = "UC" + "c" * 22
 
 
-def v(i, titulo, cid="UCref", canal="Ref", handle="@ref", dias=5):
+def v(i, titulo, cid="UCref", canal="Café Brasil", handle="@LucianoPiresCafeBrasil", dias=5):
     return {"id": i, "title": titulo, "channel_id": cid, "channel": canal, "uploader_id": handle,
             "timestamp": AGORA - dias * DIA}
 
 
+def canal(cid, nome, handle, dias):
+    return {"channel_id": cid, "channel": nome, "uploader_id": handle, "channel_follower_count": 1000,
+            "entries": [v("x" + cid, "ultimo", cid, nome, handle, dias)]}
+
+
+TITULOS = [
+    "Café Brasil 950 – Liderança em tempos de crise",
+    "Café Brasil 951 – Liderança e propósito",
+    "Cafezinho 600 – Liderança servidora",
+    "LíderCast 312 – Empreendedorismo e liderança",
+    "Café Brasil 952 – Filosofia estoica no trabalho",
+    "Cafezinho 601 – Filosofia estoica para iniciantes",
+]
+RODAPE = "\nApoie: https://www.youtube.com/@cafebrasilcortes e https://youtube.com/@rodape"
+DESCRICOES = [
+    "Com https://youtube.com/@convidado",
+    "Volta o https://www.youtube.com/@Convidado.",
+    "De novo youtube.com/@convidado",
+    f"Agora pelo ID youtube.com/channel/{UCCONV}",
+    "Link quebrado youtube.com/c/Invalido",
+    "Citação única https://www.youtube.com/@solo",
+]
+
+
+class Respostas(dict):
+    """URLs fixas + buscas geradas: UCbom e UCvelho em todas, UCraro só na primeira."""
+
+    def __init__(self, *a):
+        super().__init__(*a)
+        self.buscas = 0
+
+    def get(self, url, default=None):
+        if url.startswith("ytsearch"):
+            self.buscas += 1
+            q = url.split(":", 1)[1]
+            r = [v("b1", f"{q} 1", "UCbom", "Bom", "@bom", 3), v("b2", f"{q} 2"),
+                 v("b3", q, "UCtopic", "Coisa - Topic", None, 3), v("b4", "velho", "UCvelho", "Velho", "@velho", 400)]
+            if self.buscas == 1:
+                r.append(v("b5", "raro", "UCraro", "Raro", "@raro", 2))
+            if self.buscas == 2:
+                r.append(v("b6", "conv", UCCONV, "Convidado", "@convidado", 2))
+            return {"entries": r}
+        return dict.get(self, url, default)
+
+
 def cenario():
-    titulos = ["Pão de queijo mineiro", "Pão de queijo de frigideira", "Queijo minas caseiro",
-               "Doce de leite mineiro", "Pão de queijo sem glúten"]
     resp = {
-        f"{REF}/videos": {"channel_id": "UCref", "channel": "Ref", "uploader_id": "@ref",
-                          "description": "Receitas mineiras", "tags": ["culinária mineira"],
-                          "entries": [v(f"r{i}", t) for i, t in enumerate(titulos)]},
-        "https://www.youtube.com/watch?v=r0": {"id": "r0", "tags": ["pão de queijo", "receita mineira"]},
+        f"{REF}/videos": {"channel_id": "UCref", "channel": "Café Brasil", "uploader_id": "@LucianoPiresCafeBrasil",
+                          "description": "Liderança e filosofia", "tags": ["liderança"],
+                          "entries": [v(f"r{i}", t) for i, t in enumerate(TITULOS)]},
         f"{REF}/channels": DownloadError("This channel does not have a channels tab"),
-        f"{REF}/featured": {"channel_id": "UCref", "entries": [
-            {"ie_key": "YoutubeTab", "channel_id": "UCamiga", "channel": "Amiga", "uploader_id": "@amiga",
-             "url": "https://www.youtube.com/channel/UCamiga"}]},
+        f"{REF}/featured": {"channel_id": "UCref", "_avisos": ['Unsupported lockup view model content type "CHANNEL"'],
+                            "entries": [{"ie_key": "Youtube", "url": "https://www.youtube.com/watch?v=r0"},
+                                        {"ie_key": "YoutubeTab", "url": "https://www.youtube.com/playlist?list=PL1"}]},
+        "https://www.youtube.com/@convidado/videos": canal(UCCONV, "Convidado", "@convidado", 10),
+        "https://www.youtube.com/@Convidado/videos": canal(UCCONV, "Convidado", "@convidado", 10),
+        f"https://www.youtube.com/channel/{UCCONV}/videos": canal(UCCONV, "Convidado", "@convidado", 10),
+        "https://www.youtube.com/@solo/videos": canal("UCsolo", "Solo", "@solo", 10),
+        "https://www.youtube.com/channel/UCvelho/videos": canal("UCvelho", "Velho", "@velho", 300),
+        "https://www.youtube.com/channel/UCraro/videos": canal("UCraro", "Raro", "@raro", 1),
     }
-    # buscas: UCbom e UCvelho (inativo) aparecem em todas, junto com o próprio canal e um canal automático
-    def busca(q):
-        return {"entries": [v("b1", f"{q} 1", "UCbom", "Bom", "@bom", 3),
-                            v("b2", f"{q} 2", "UCref"),
-                            v("b3", f"{q} 3", "UCtopic", "Coisa - Topic", None, 3)]
-                + [v("b4", "velho", "UCvelho", "Velho", "@velho", 400)]}
-    return resp, busca
+    for i, d in enumerate(DESCRICOES):
+        resp[f"https://www.youtube.com/watch?v=r{i}"] = {
+            "id": f"r{i}", "description": d + RODAPE, "tags": ["filosofia estoica"] if i == 0 else []}
+    return Respostas(resp)
 
 
 class TestDescoberta(unittest.TestCase):
     def rodar(self, exclusoes=frozenset(), **cfg):
-        resp, busca = cenario()
-
-        class Respostas(dict):
-            def get(self, url, default=None):
-                if url.startswith("ytsearch"):
-                    return busca(url.split(":", 1)[1])
-                if url == "https://www.youtube.com/channel/UCvelho/videos":
-                    return {"channel_id": "UCvelho", "entries": [v("x", "x", "UCvelho", dias=300)]}
-                return dict.get(self, url, default)
-
-        fab, chamadas = fabrica(Respostas(resp))
-        cfg = Config(pausa=0, detalhes_videos=1, **cfg)
+        fab, chamadas = fabrica(cenario())
+        cfg = Config(pausa=0, ignorar_termos="lidercast,cafezinho", **cfg)
         coletor = Coletor(cfg, Cache(":memory:"), fab, dormir=lambda s: None)
-        return descobrir("@ref", cfg, coletor, exclusoes, agora=AGORA), chamadas
+        return descobrir("@LucianoPiresCafeBrasil", cfg, coletor, exclusoes, agora=AGORA), chamadas
 
-    def test_pipeline(self):
-        r, chamadas = self.rodar(max_buscas=4)
-        self.assertEqual(len(r["consultas"]), 4)
-        self.assertIn("queijo", r["palavras_chave"])
-        self.assertNotIn("ref", r["palavras_chave"])
+    def test_palavras_e_buscas(self):
+        r, chamadas = self.rodar()
+        self.assertEqual(r["referencia"]["videos_com_detalhes"], 6)  # todos, não só 5
+        termos = [p["termo"] for p in r["palavras_chave"]]
+        self.assertIn("liderança", termos)
+        for proibido in ("café", "cafe", "brasil", "cafezinho", "lídercast", "pires"):
+            self.assertNotIn(proibido, termos)
+        self.assertTrue(all(p["videos"] >= 3 for p in r["palavras_chave"] + r["frases"]))
+        self.assertIn("filosofia estoica", [f["termo"] for f in r["frases"]])
+        origens = [c["origem"] for c in r["consultas"]]
+        self.assertEqual(origens[:3], ["título"] * 3)
+        self.assertIn("frase", origens)
+        self.assertLessEqual(len(r["consultas"]), 8)
+        self.assertTrue(all("Café" not in c["consulta"] for c in r["consultas"]))
+
+    def test_mencoes(self):
+        r, _ = self.rodar()
+        m = r["mencoes"]
+        self.assertEqual(m["descricoes_lidas"], 6)
+        self.assertEqual(m["invalidos"], ["c/invalido"])
+        motivos = {i["canal"]: i["motivo"] for i in m["ignorados"]}
+        self.assertIn("criador", motivos["@cafebrasilcortes"])
+        self.assertIn("rodapé", motivos["@rodape"])
+        conv = next(c for c in r["candidatos"] if c["channel_id"] == UCCONV)
+        self.assertEqual(conv["mencoes"], 4)  # @convidado em 3 vídeos + link por ID em outro
+        self.assertIn("citado em 4 vídeos", conv["motivo"])
+        self.assertEqual(conv["seguidores"], 1000)
+
+    def test_ranking_filtros_e_fracos(self):
+        r, chamadas = self.rodar()
         nomes = [c["nome"] for c in r["candidatos"]]
         self.assertEqual(nomes[0], "Bom")
-        self.assertNotIn("Ref", nomes)                 # o próprio canal sai
-        self.assertNotIn("Coisa - Topic", nomes)       # canal automático sai
-        self.assertEqual(r["removidos"]["ruido"], 1)
-        self.assertEqual(r["destaques"]["fonte"], "aba Início")  # fallback registrado
-        self.assertTrue(any("aba Canais" in a for a in r["avisos"]))
-        amiga = next(c for c in r["candidatos"] if c["nome"] == "Amiga")
-        self.assertTrue(amiga["destaque"])
-        self.assertIn("em destaque", amiga["motivo"])
-        bom = r["candidatos"][0]
-        self.assertEqual(bom["atividade"], "ativo")
-        self.assertEqual(bom["url"], "https://www.youtube.com/@bom")
-        self.assertIn("4/4 buscas", bom["motivo"])
-        velho = next(c for c in r["candidatos"] if c["nome"] == "Velho")
-        self.assertEqual(velho["atividade"], "inativo")  # checado na aba Vídeos do candidato
+        self.assertNotIn("Café Brasil", nomes)
+        self.assertNotIn("Coisa - Topic", nomes)
+        self.assertNotIn("Velho", nomes)                   # inativo vira filtro
+        self.assertEqual(r["inativos"], ["Velho"])
         self.assertIn("https://www.youtube.com/channel/UCvelho/videos", chamadas)
-        self.assertLess(velho["score"], bom["score"])
-        self.assertEqual(r["referencia"]["videos_com_tags"], 1)
+        self.assertNotIn("Raro", nomes)                    # 1 busca só
+        self.assertNotIn("Solo", nomes)                    # 1 menção só
+        self.assertEqual(r["fracos"], {"total": 2, "por_sinal": {"1 busca": 1, "menção": 1, "destaque": 0}})
+        self.assertEqual(r["candidatos_fracos"], [])
+        self.assertTrue(all(c["sinais"] >= 2 for c in r["candidatos"]))
+        self.assertNotIn("https://www.youtube.com/channel/UCraro/videos", chamadas)  # fraco oculto: não checa
+
+    def test_mostrar_fracos(self):
+        r, _ = self.rodar(mostrar_fracos=True)
+        self.assertEqual({c["nome"] for c in r["candidatos_fracos"]}, {"Raro", "Solo"})
+
+    def test_diagnostico_abas(self):
+        r, _ = self.rodar()
+        estados = [(a["fonte"], a["estado"]) for a in r["destaques"]["abas"]]
+        self.assertEqual(estados, [("aba Canais", "falhou"), ("aba Início", "sem_canais")])
+        avisos = " ".join(r["avisos"])
+        self.assertIn("FALHOU", avisos)
+        self.assertIn("channels tab", avisos)
+        self.assertIn("NENHUM canal", avisos)
+        self.assertIn("1 playlist, 1 video", avisos)
+        self.assertIn("não sabe ler", avisos)
+
+    def test_etapas(self):
+        r, chamadas = self.rodar()
+        etapas = {e["etapa"]: e for e in r["etapas"]}
+        self.assertEqual(etapas["detalhes de 6 vídeos"]["rede"], 6)
+        self.assertEqual(sum(e["rede"] for e in r["etapas"]), r["requisicoes"]["rede"])
+        self.assertEqual(r["requisicoes"]["rede"], len(chamadas))
 
     def test_exclusao(self):
         r, _ = self.rodar(exclusoes={"@bom"})

@@ -3,8 +3,8 @@ from yt_dlp.utils import DownloadError
 
 
 class FakeYDL:
-    def __init__(self, respostas, chamadas):
-        self.respostas, self.chamadas = respostas, chamadas
+    def __init__(self, respostas, chamadas, opcoes):
+        self.respostas, self.chamadas, self.opcoes = respostas, chamadas, opcoes
 
     def __enter__(self):
         return self
@@ -21,9 +21,11 @@ class FakeYDL:
             r = r.pop(0) if len(r) > 1 else r[0]
         if isinstance(r, Exception):
             raise r
-        return r
+        for aviso in r.get("_avisos", []):  # simula warnings que o yt-dlp emite durante a extração
+            self.opcoes["logger"].warning(aviso)
+        return {k: v for k, v in r.items() if k != "_avisos"}
 
 
 def fabrica(respostas):
     chamadas = []
-    return (lambda opcoes: FakeYDL(respostas, chamadas)), chamadas
+    return (lambda opcoes: FakeYDL(respostas, chamadas, opcoes)), chamadas

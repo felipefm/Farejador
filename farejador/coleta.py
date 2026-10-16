@@ -1,5 +1,8 @@
 """Acesso ao YouTube via yt-dlp: pausa entre requisições, cache, retry com backoff e log de erros."""
+import json
+import re
 import time
+from collections import Counter
 
 from yt_dlp import YoutubeDL
 from yt_dlp.utils import DownloadError, ExtractorError
@@ -33,6 +36,7 @@ class _Logger:
 
     def __init__(self, cache, alvo):
         self.cache, self.alvo = cache, alvo
+        self.avisos = []
 
     def debug(self, msg):
         pass
@@ -41,6 +45,7 @@ class _Logger:
         pass
 
     def warning(self, msg):
+        self.avisos.append(msg)
         self.cache.evento("aviso", "ytdlp", self.alvo, msg)
 
     def error(self, msg):
@@ -61,9 +66,12 @@ class Coletor:
         self._ultima = None
         self.requisicoes = 0
         self.acertos_cache = 0
+        self.ultimo_erro = None   # mensagem do último erro de _extrair/cache negativo
+        self.ultimos_avisos = []  # avisos do yt-dlp na última chamada de rede
+        self.avisos_ytdlp = 0     # total de avisos do yt-dlp nesta execução
 
     # ---------------------------------------------------------------- núcleo
-    def _opcoes(self, alvo, extras):
+    def _opcoes(self, logger, extras):
         opcoes = {
             "quiet": True,
             "no_warnings": False,
@@ -75,7 +83,7 @@ class Coletor:
             "cachedir": str(self.cfg.caminho("dados") / "yt-dlp-cache"),
             # datas relativas ("3 weeks ago") viram timestamp aproximado nos resultados flat
             "extractor_args": {"youtubetab": {"approximate_date": [""]}},
-            "logger": _Logger(self.cache, alvo),
+            "logger": logger,
         }
         opcoes.update(extras or {})
         return opcoes
@@ -93,18 +101,24 @@ class Coletor:
         for tentativa in range(1, self.cfg.tentativas + 1):
             self._esperar_vez()
             self.requisicoes += 1
+            logger = _Logger(self.cache, url)
+            self.ultimos_avisos = logger.avisos
             try:
-                with self.fabrica_ydl(self._opcoes(url, extras)) as ydl:
+                with self.fabrica_ydl(self._opcoes(logger, extras)) as ydl:
                     info = ydl.extract_info(url, download=False)
                 info = ydl.sanitize_info(info) if hasattr(ydl, "sanitize_info") else info
                 self.cache.evento("info", "rede", url, "ok", tentativa)
+                self.avisos_ytdlp += len(logger.avisos)
+                self._salvar_bruto(chave, url, info, None)
                 return info
             except (DownloadError, ExtractorError) as e:
-                ultimo_erro = str(e)
+                self.avisos_ytdlp += len(logger.avisos)
+                ultimo_erro = self.ultimo_erro = str(e)
                 tipo = classificar(ultimo_erro)
                 self.cache.evento("erro", tipo, url, ultimo_erro, tentativa)
                 if tipo == "permanente":
                     self.cache.put(chave, {"info": None, "erro": ultimo_erro})  # não repetir
+                    self._salvar_bruto(chave, url, None, ultimo_erro)
                     return None
                 if tipo == "bloqueio" and tentativa >= 2:
                     raise BloqueioYouTube(ultimo_erro) from e
@@ -113,13 +127,29 @@ class Coletor:
                     self.dormir(espera)
         if classificar(ultimo_erro or "") == "bloqueio":
             raise BloqueioYouTube(ultimo_erro)
+        self._salvar_bruto(chave, url, None, ultimo_erro)
         return None
 
-    def _com_cache(self, chave, url, reduzir, extras=None):
+    def _arquivo_bruto(self, chave):
+        nome = re.sub(r"[^\w.@-]+", "_", chave)[:150]
+        return self.cfg.caminho("dados") / "bruto" / f"{nome}.json"
+
+    def _salvar_bruto(self, chave, url, info, erro):
+        if not self.cfg.salvar_bruto:
+            return
+        p = self._arquivo_bruto(chave)
+        p.parent.mkdir(parents=True, exist_ok=True)
+        dados = {"url": url, "erro": erro, "avisos_ytdlp": list(self.ultimos_avisos), "info": info}
+        p.write_text(json.dumps(dados, ensure_ascii=False, indent=1, default=str), encoding="utf-8")
+
+    def _com_cache(self, chave, url, reduzir, extras=None, forcar_rede=False):
         """Busca na rede (se preciso), reduz o resultado aos campos úteis e guarda já reduzido."""
-        guardado = self.cache.get(chave)
+        self.ultimo_erro = None
+        self.ultimos_avisos = []
+        guardado = None if forcar_rede else self.cache.get(chave)
         if guardado is not None:
             self.acertos_cache += 1
+            self.ultimo_erro = guardado.get("erro")
             return guardado.get("info")
         bruto = self._extrair(chave, url, extras)
         if bruto is None:
@@ -134,8 +164,14 @@ class Coletor:
         return self._com_cache(f"canal:{base}:{n}", f"{base}/videos", _reduzir_canal, {"playlistend": n})
 
     def destaques(self, url):
-        """Entradas de canal encontradas numa aba (canais/início). Lista vazia se nada."""
-        return self._com_cache(f"destaques:{url}", url, _reduzir_destaques, {"playlistend": 100})
+        """Canais encontrados numa aba (canais/início) + contagem do que mais veio, para diagnóstico.
+
+        Com salvar_bruto, a aba é sempre relida da rede (o cache só guarda a versão reduzida).
+        """
+        chave = f"destaques2:{url}"  # v2: guarda tipos/avisos; ignora cache do formato antigo
+        forcar = self.cfg.salvar_bruto and not self._arquivo_bruto(chave).exists()
+        reduzir = lambda info: dict(_reduzir_destaques(info), avisos_ytdlp=list(self.ultimos_avisos))  # noqa: E731
+        return self._com_cache(chave, url, reduzir, {"playlistend": 100}, forcar_rede=forcar)
 
     def buscar(self, consulta, n):
         return self._com_cache(f"busca:{n}:{consulta.lower()}", f"ytsearch{n}:{consulta}", _reduzir_busca)
@@ -180,23 +216,37 @@ def _reduzir_busca(info):
     return [_entrada_video(e) for e in (info.get("entries") or []) if e and e.get("channel_id")]
 
 
+def _tipo_entrada(e):
+    url = e.get("url") or ""
+    if e.get("ie_key") == "Youtube" or "/watch" in url or "/shorts/" in url:
+        return "video"
+    if "/playlist" in url:
+        return "playlist"
+    if "/channels" in url:
+        return "link_canais"
+    if e.get("ie_key") == "YoutubeTab" and e.get("channel_id") and ("/channel/" in url or "/@" in url):
+        return "canal"
+    return "outro"
+
+
 def _reduzir_destaques(info):
-    canais, links = [], []
+    canais, links, tipos = [], [], Counter()
     for e in info.get("entries") or []:
         if not e:
             continue
-        url = e.get("url") or ""
-        # entrada de canal: tem channel_id e não é vídeo/playlist
-        if e.get("ie_key") == "YoutubeTab" and e.get("channel_id") and "/playlist" not in url:
+        tipo = _tipo_entrada(e)
+        tipos[tipo] += 1
+        if tipo == "canal":
             canais.append({
                 "channel_id": e.get("channel_id"),
                 "nome": e.get("channel") or e.get("title"),
                 "handle": e.get("uploader_id"),
-                "url": e.get("channel_url") or url,
+                "url": e.get("channel_url") or e.get("url"),
             })
-        elif "/channels" in url:
-            links.append(url)  # prateleira "Canais em destaque" que aponta para outra página
-    return {"canais": canais, "links": links, "dono": info.get("channel_id")}
+        elif tipo == "link_canais":
+            links.append(e["url"])  # prateleira "Canais em destaque" que aponta para outra página
+    return {"canais": canais, "links": links, "tipos": dict(tipos), "total": sum(tipos.values()),
+            "dono": info.get("channel_id")}
 
 
 def _reduzir_video(info):

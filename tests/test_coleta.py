@@ -1,6 +1,10 @@
+import json
+import tempfile
 import unittest
 
 from yt_dlp.utils import DownloadError
+
+from pathlib import Path
 
 from farejador.cache import Cache
 from farejador.coleta import BloqueioYouTube, Coletor, classificar
@@ -97,3 +101,44 @@ class TestColeta(unittest.TestCase):
         r = c.destaques("u")
         self.assertEqual([x["channel_id"] for x in r["canais"]], ["UCa"])
         self.assertEqual(r["links"], ["https://www.youtube.com/@ref/channels?view=49"])
+
+
+class TestDiagnosticoEBruto(unittest.TestCase):
+    def test_destaques_guarda_tipos_e_avisos(self):
+        aba = {"channel_id": "UCref", "_avisos": ['Unsupported lockup view model content type "X"'],
+               "entries": [{"ie_key": "Youtube", "url": "https://www.youtube.com/watch?v=1"},
+                           {"ie_key": "YoutubeTab", "url": "https://www.youtube.com/playlist?list=PL"}]}
+        c, _, _ = coletor({"u": aba}, pausa=0)
+        r = c.destaques("u")
+        self.assertEqual(r["tipos"], {"video": 1, "playlist": 1})
+        self.assertEqual(r["total"], 2)
+        self.assertEqual(len(r["avisos_ytdlp"]), 1)
+        self.assertEqual(c.avisos_ytdlp, 1)
+        self.assertEqual(c.destaques("u"), r)  # do cache, com os mesmos avisos
+
+    def test_ultimo_erro_vem_tambem_do_cache(self):
+        erro = DownloadError("This channel does not have a channels tab")
+        c, chamadas, _ = coletor({"u": erro}, pausa=0)
+        self.assertIsNone(c.destaques("u"))
+        self.assertIn("channels tab", c.ultimo_erro)
+        c.ultimo_erro = None
+        self.assertIsNone(c.destaques("u"))
+        self.assertIn("channels tab", c.ultimo_erro)
+        self.assertEqual(len(chamadas), 1)
+
+    def test_salvar_bruto(self):
+        with tempfile.TemporaryDirectory() as d:
+            aba = {"channel_id": "UCref", "entries": [], "_avisos": ["aviso x"]}
+            c, chamadas, _ = coletor({"https://www.youtube.com/@r/featured": aba,
+                                      "ytsearch20:a": BUSCA}, pausa=0, dados=d, salvar_bruto=True)
+            c.cache.put("destaques2:https://www.youtube.com/@r/featured", {"info": {"canais": []}})
+            c.destaques("https://www.youtube.com/@r/featured")  # ignora o cache: precisa do cru
+            c.buscar("a", 20)
+            arquivos = sorted(p.name for p in (Path(d) / "bruto").iterdir())
+            self.assertEqual(len(arquivos), 2)
+            cru = json.loads((Path(d) / "bruto" / [a for a in arquivos if a.startswith("destaques2")][0]).read_text())
+            self.assertEqual(cru["avisos_ytdlp"], ["aviso x"])
+            self.assertEqual(cru["info"]["channel_id"], "UCref")
+            self.assertEqual(len(chamadas), 2)
+            c.destaques("https://www.youtube.com/@r/featured")  # já tem o cru: volta a usar o cache
+            self.assertEqual(len(chamadas), 2)
