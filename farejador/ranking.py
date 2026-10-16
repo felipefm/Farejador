@@ -56,3 +56,19 @@ def pontuar(c, total_buscas, dias):
 
 def ordenar(candidatos):
     return sorted(candidatos, key=lambda c: (-c["score"], -sinais(c), (c.get("nome") or "").lower()))
+
+
+def combinar(candidatos, peso_llm):
+    """Ordem final: (1 - peso) * score normalizado (0–10) + peso * nota do LLM (0–10).
+
+    O score determinístico é normalizado pelo maior da lista. Candidato sem nota (LLM desligado,
+    falhou ou fora do limite) usa o próprio score normalizado no lugar da nota: não ganha nem perde
+    por não ter sido avaliado. Ordena a lista no lugar.
+    """
+    maior = max((c["score"] for c in candidatos), default=0) or 1
+    for c in candidatos:
+        det = 10 * c["score"] / maior
+        nota = c.get("nota_llm")
+        c["score_final"] = round((1 - peso_llm) * det + peso_llm * (det if nota is None else nota), 2)
+    candidatos.sort(key=lambda c: (-c["score_final"], -c["score"], (c.get("nome") or "").lower()))
+    return candidatos

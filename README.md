@@ -42,6 +42,41 @@ python3 -m venv .venv
 
 Custo típico sem cache: cerca de 1 + 30 + 2 + 15 + 8 + 25 ≈ 80 requisições, ou seja, uns 3 a 4 minutos só de pausa. Rodar de novo com o cache quente custa uma fração disso.
 
+## LLM local (opcional, desligado por padrão)
+
+Com um servidor compatível com a API da OpenAI (testado contra o formato do LM Studio), o Farejador faz duas coisas a mais:
+
+1. **Pede de 8 a 10 consultas sobre o tema** a partir de nome, títulos, tags e trechos de descrição do canal. O prompt proíbe o nome do canal e dos programas. Consultas com termo proibido, repetidas, com menos de 2 ou mais de 8 palavras, ou iguais a uma determinística são descartadas. As válidas **somam** às buscas determinísticas, até `FAREJADOR_LLM_MAX_BUSCAS` (padrão 8), e aparecem com origem `[llm]`.
+2. **Reavalia os primeiros candidatos da lista principal** (`FAREJADOR_LLM_AVALIAR`, padrão 15). O modelo recebe o perfil da referência e até 10 títulos recentes do candidato e devolve uma nota de 0 a 10 de afinidade temática, com uma justificativa de uma frase. Quando a aba Vídeos do candidato ainda não foi lida, ela é lida agora (1 requisição ao YouTube, com cache).
+   - **Ordem final:** `(1 − peso) × score normalizado (0–10) + peso × nota`, com peso `FAREJADOR_LLM_PESO` (padrão 0,5). O score normalizado é o score dividido pelo maior score da lista, × 10.
+   - **Sem nota** (falha ou fora do limite): o candidato usa o próprio score normalizado no lugar da nota.
+
+```bash
+export FAREJADOR_LLM_URL=http://192.168.0.6:1234      # /v1 é acrescentado se faltar
+export FAREJADOR_LLM_MODEL=google/gemma-4-e4b          # vazio = primeiro modelo carregado
+.venv/bin/python farejador.py @canal                   # usa o LLM
+.venv/bin/python farejador.py @canal --sem-llm         # força o modo determinístico
+```
+
+O endereço é só configuração. Se o IP mudar, troque a variável ou passe `--llm-url`.
+
+### Como ligar o servidor no LM Studio
+
+1. Carregue o modelo (ex.: `google/gemma-4-e4b`).
+2. Na aba **Developer**, ligue o servidor. Pelo terminal, `lms server start` faz o mesmo. A porta padrão é 1234.
+3. Nas configurações do servidor, ative **Serve on Local Network**. Sem isso, o servidor só aceita conexões da própria máquina.
+4. Deixe **Require Authentication** desligado: o Farejador não envia token.
+5. Se houver firewall na máquina do LM Studio, libere a porta TCP 1234 para a rede local.
+6. Teste da máquina do Farejador: `curl http://192.168.0.6:1234/v1/models` deve listar o modelo.
+
+### Falhas: o LLM nunca derruba a execução
+
+- **Timeout ou servidor fora do ar:** o LLM é desligado na primeira ocorrência e a execução segue no modo determinístico, com AVISO. Não espera um timeout por candidato.
+- **Resposta fora do formato:** é descartada (não entra no cache). Com 3 respostas inválidas ou erros HTTP seguidos, o LLM é desligado.
+- **Cache:** respostas válidas ficam no SQLite com chave = hash de (modelo, prompt, schema). Trocar de modelo invalida o cache.
+- **Log:** latência e erros vão para a tabela `eventos`. Os tipos são `llm`, `llm_indisponivel`, `llm_invalido` e `llm_erro`.
+- **`--salvar-bruto`:** grava cada pedido e cada resposta crua em `data/bruto/llm-<tipo>-<hash>.json`.
+
 ## Configuração
 
 Toda opção da CLI também pode vir de uma variável de ambiente `FAREJADOR_<NOME>`. A CLI tem prioridade.
@@ -64,6 +99,13 @@ Toda opção da CLI também pode vir de uma variável de ambiente `FAREJADOR_<NO
 | `FAREJADOR_TENTATIVAS` / `FAREJADOR_BACKOFF` | 3 / 5 | retry e base do backoff (s) |
 | `FAREJADOR_TOP` | 20 | linhas na tabela |
 | `FAREJADOR_VERBOSE` / `FAREJADOR_MOSTRAR_FRACOS` / `FAREJADOR_SALVAR_BRUTO` | false | flags (`1`/`true`) |
+| `FAREJADOR_LLM_URL` | — | servidor OpenAI-compatível; vazio = LLM desligado |
+| `FAREJADOR_LLM_MODEL` | — | id do modelo; vazio = primeiro de `/v1/models` |
+| `FAREJADOR_LLM_TIMEOUT` | 60 | segundos por chamada |
+| `FAREJADOR_LLM_MAX_BUSCAS` | 8 | consultas do LLM somadas às determinísticas |
+| `FAREJADOR_LLM_AVALIAR` | 15 | candidatos reavaliados |
+| `FAREJADOR_LLM_PESO` | 0.5 | peso da nota na ordem final (0 a 1) |
+| `FAREJADOR_SEM_LLM` / `--sem-llm` | false | ignora o LLM mesmo configurado |
 | `FAREJADOR_DADOS` | data | pasta do SQLite, do cache do yt-dlp e de `bruto/` |
 | `FAREJADOR_EXCLUDE` / `FAREJADOR_SAIDA` | exclude.txt / resultado.json | arquivos |
 
@@ -93,4 +135,10 @@ Os testes não acessam a rede: o yt-dlp é simulado.
 - **Proximidade de tamanho não implementada.** O yt-dlp não traz inscritos nos resultados de busca, só na página do canal. Para comparar o tamanho de todos os candidatos seria preciso 1 requisição extra por candidato. Hoje o número só aparece no JSON (`seguidores`) para os canais cuja página já é lida (menções e checagem de atividade).
 - **Destaques: "o canal não tem" vs. "o yt-dlp não expõe".** Só é possível distinguir em parte. A saída diz se a aba falhou, veio vazia ou veio sem canais, e se o yt-dlp avisou que ignorou itens desconhecidos. O HTML cru do YouTube não é salvo (seriam vários MB por página).
 - **Runtime JavaScript.** Versões recentes do yt-dlp querem um runtime JavaScript (deno) para a extração completa de vídeos. Sem ele, a leitura de detalhes pode falhar; nesse caso a saída avisa quantos vídeos tiveram detalhes lidos.
+- **Formato da resposta do LLM.** Supõe-se o formato `/v1/chat/completions` da OpenAI, com o JSON em texto dentro de `choices[0].message.content`.
+  - O pedido usa `response_format: {"type": "json_schema", "json_schema": {"name", "strict": true, "schema"}}` (structured output do LM Studio). Se o servidor responder HTTP 400, o pedido é repetido sem `response_format`.
+  - O LM Studio avisa que modelos abaixo de ~7B nem sempre obedecem ao schema, e o gemma-4-e4b é um deles. Por isso a resposta é sempre validada aqui: o parser tolera blocos `<think>…</think>`, cercas \`\`\`json e texto antes ou depois do objeto.
+  - Consultas: `{"consultas": [string]}`. Nota: `{"nota": número de 0 a 10, "justificativa": string}`. Nota em string (`"7"`) é rejeitada.
+- **Sem mensagem `system`.** Tudo vai numa única mensagem `user`, porque alguns templates (Gemma) recusam o papel `system`. A temperatura é fixa em 0,2.
+- **A nota do LLM é opinião de um modelo pequeno.** Ela só reordena: não remove ninguém da lista e não substitui os sinais determinísticos.
 - **Docker:** fica para a fase 2.

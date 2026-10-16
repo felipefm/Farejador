@@ -28,6 +28,13 @@ class Config:
     mostrar_fracos: bool = False      # mostra também candidatos com 1 sinal só
     verbose: bool = False             # custo em requisições por etapa e avisos do yt-dlp
     salvar_bruto: bool = False        # grava o retorno cru do yt-dlp em <dados>/bruto/
+    llm_url: str = ""                 # ex.: http://192.168.0.6:1234/v1 (vazio = LLM desligado)
+    llm_model: str = ""               # vazio = primeiro modelo carregado no servidor
+    llm_timeout: float = 60.0         # segundos por chamada ao LLM
+    llm_max_buscas: int = 8           # consultas do LLM somadas às determinísticas
+    llm_avaliar: int = 15             # candidatos da lista principal reavaliados pelo LLM
+    llm_peso: float = 0.5             # peso da nota do LLM na ordem final (0 = ignora, 1 = só LLM)
+    sem_llm: bool = False             # força o modo determinístico mesmo com LLM configurado
     dados: str = "data"               # pasta do SQLite e cache do yt-dlp
     exclude: str = "exclude.txt"
     saida: str = "resultado.json"

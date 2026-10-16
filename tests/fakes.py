@@ -29,3 +29,37 @@ class FakeYDL:
 def fabrica(respostas):
     chamadas = []
     return (lambda opcoes: FakeYDL(respostas, chamadas, opcoes)), chamadas
+
+
+class _Resp:
+    def __init__(self, texto):
+        self.texto = texto
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *a):
+        return False
+
+    def read(self):
+        return self.texto.encode()
+
+
+def chat(conteudo):
+    """Corpo de resposta no formato /v1/chat/completions."""
+    import json
+    return json.dumps({"choices": [{"message": {"role": "assistant", "content": conteudo}}]})
+
+
+class FakeLLMServer:
+    """Substitui urllib.request.urlopen. `responder(pedido_json, url)` devolve texto ou levanta exceção."""
+
+    def __init__(self, responder):
+        self.responder = responder
+        self.pedidos = []
+
+    def __call__(self, req, timeout=None):
+        import json
+        corpo = json.loads(req.data) if req.data else None
+        self.pedidos.append({"url": req.full_url, "corpo": corpo, "timeout": timeout})
+        return _Resp(self.responder(corpo, req.full_url))

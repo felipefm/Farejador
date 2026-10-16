@@ -3,8 +3,10 @@ import time
 from contextlib import contextmanager
 from datetime import datetime, timezone
 
-from . import busca, mencoes, palavras, ranking
+from . import busca, llm as llm_mod, mencoes, palavras, ranking
 from .canais import chaves_do_canal, url_base
+
+VIDEOS_CANDIDATO = 10  # vídeos lidos da aba Vídeos de um candidato (atividade + títulos para o LLM)
 
 
 class ErroCanal(RuntimeError):
@@ -25,18 +27,22 @@ def _novo(cid, nome=None, handle=None):
 class Etapas:
     """Custo de cada etapa: requisições na rede, acertos de cache e tempo."""
 
-    def __init__(self, coletor, relogio=time.monotonic):
-        self.coletor, self.relogio, self.lista = coletor, relogio, []
+    def __init__(self, coletor, llm=None, relogio=time.monotonic):
+        self.coletor, self.llm, self.relogio, self.lista = coletor, llm, relogio, []
 
     @contextmanager
     def medir(self, nome):
         r0, c0, t0 = self.coletor.requisicoes, self.coletor.acertos_cache, self.relogio()
+        l0, lc0 = (self.llm.chamadas, self.llm.acertos_cache) if self.llm else (0, 0)
         try:
             yield
         finally:
-            self.lista.append({"etapa": nome, "rede": self.coletor.requisicoes - r0,
-                               "cache": self.coletor.acertos_cache - c0,
-                               "segundos": round(self.relogio() - t0, 1)})
+            e = {"etapa": nome, "rede": self.coletor.requisicoes - r0, "cache": self.coletor.acertos_cache - c0,
+                 "segundos": round(self.relogio() - t0, 1)}
+            if self.llm:
+                e["llm"] = self.llm.chamadas - l0
+                e["llm_cache"] = self.llm.acertos_cache - lc0
+            self.lista.append(e)
 
 
 def _diagnostico_aba(fonte, url, r, erro):
@@ -91,7 +97,7 @@ def _mencoes(coletor, cfg, videos, ref, agora, avisos, log):
     por_id, invalidos = {}, []
     for chave, m in ordem[: cfg.max_mencoes]:
         log(f"validando canal citado {chave} ({len(m['videos'])} vídeos)…")
-        info = coletor.canal(m["url"], 5)
+        info = coletor.canal(m["url"], VIDEOS_CANDIDATO)
         if not info or not info.get("channel_id"):
             invalidos.append(chave)
             continue
@@ -104,8 +110,7 @@ def _mencoes(coletor, cfg, videos, ref, agora, avisos, log):
         c["ids"] |= m["videos"]
         c["mencoes"] = len(c["ids"])
         c["seguidores"] = info.get("seguidores")
-        c["verificado"] = True
-        c["atividade"] = ranking.atividade([v["timestamp"] for v in info["videos"]], cfg.dias_ativo, agora)
+        _dados_do_canal(c, info, cfg, agora)
     for c in por_id.values():
         c.pop("ids")
     relatorio = {
@@ -120,11 +125,80 @@ def _mencoes(coletor, cfg, videos, ref, agora, avisos, log):
     return por_id, relatorio
 
 
+def _dados_do_canal(c, info, cfg, agora):
+    """Aproveita a leitura da aba Vídeos do candidato: atividade, inscritos e títulos recentes."""
+    c["handle"] = c.get("handle") or info.get("handle")
+    c["nome"] = c.get("nome") or info.get("nome")
+    c["seguidores"] = info.get("seguidores")
+    c["verificado"] = True
+    c["titulos_recentes"] = [v["titulo"] for v in info["videos"] if v.get("titulo")]
+    c["atividade"] = ranking.atividade([v["timestamp"] for v in info["videos"]], cfg.dias_ativo, agora)
+
+
+def _consultas_llm(llm, ref, videos, unigramas, frases, ignorar, consultas, cfg, avisos, log):
+    """Consultas sobre o tema pedidas ao LLM, sem termos do canal e sem repetir as determinísticas."""
+    log("pedindo consultas ao LLM…")
+    tags = list(dict.fromkeys(t for v in videos for t in v.get("tags") or []))[:40]
+    descricoes = [v["descricao"] for v in videos if v.get("descricao")][:5]
+    proibidos = [t for t in ignorar.lista() if not t.startswith("(")] + [ref.get("handle") or ""]
+    prompt = llm_mod.prompt_consultas(ref.get("nome"), [v["titulo"] for v in videos], tags, descricoes,
+                                      [p for p in proibidos if p])
+    ja = {q.lower() for q, _ in consultas}
+
+    def proibido(q):
+        return q.lower() in ja or any(c in ignorar for c, _ in palavras.tokens(q))
+
+    r = llm.perguntar("consultas", prompt, llm_mod.SCHEMA_CONSULTAS,
+                      llm_mod.validar_consultas(proibido, cfg.llm_max_buscas))
+    if r is None and llm.ligado:
+        avisos.append("LLM não devolveu consultas válidas (ver eventos/llm_invalido); usei só as determinísticas.")
+    return [(q, "llm") for q in r or []]
+
+
+def _perfil(ref, unigramas, frases, videos):
+    return "\n".join([
+        f"Canal: {ref.get('nome')}",
+        "Temas: " + ", ".join([f["termo"] for f in frases] + [u["termo"] for u in unigramas[:10]]),
+        "Títulos recentes:",
+        *[f"- {v['titulo']}" for v in videos[:10]],
+    ])
+
+
+def _avaliar_llm(llm, coletor, lista, perfil, cfg, agora, avisos, log):
+    """Nota de afinidade temática para os primeiros candidatos. Lê a aba Vídeos de quem ainda não foi lido."""
+    avaliados = 0
+    for c in lista[: cfg.llm_avaliar]:
+        if not llm.ligado:
+            break
+        if not c.get("titulos_recentes"):
+            log(f"lendo títulos recentes de {c.get('nome') or c['channel_id']} para o LLM…")
+            info = coletor.canal(f"https://www.youtube.com/channel/{c['channel_id']}", VIDEOS_CANDIDATO)
+            if info:
+                _dados_do_canal(c, info, cfg, agora)
+        if c.get("atividade") == "inativo":
+            continue  # descoberto agora; sai na filtragem
+        titulos = c.get("titulos_recentes") or c.get("videos") or []
+        if not titulos:
+            continue
+        log(f"LLM avaliando {c.get('nome') or c['channel_id']}…")
+        r = llm.perguntar("nota", llm_mod.prompt_nota(perfil, c.get("nome") or c["channel_id"], titulos[:10]),
+                          llm_mod.SCHEMA_NOTA, llm_mod.validar_nota)
+        if r:
+            c["nota_llm"], c["justificativa_llm"] = r["nota"], r["justificativa"]
+            avaliados += 1
+    tentados = min(len(lista), cfg.llm_avaliar)
+    if tentados and avaliados < tentados:
+        avisos.append(f"LLM avaliou {avaliados}/{tentados} candidatos; os demais ficaram só com o score "
+                      "determinístico.")
+    return avaliados
+
+
 def descobrir(entrada, cfg, coletor, exclusoes=frozenset(), agora=None, log=lambda m, detalhe=False: None,
-              relogio=time.monotonic):
+              relogio=time.monotonic, llm=None):
     agora = agora or time.time()
     avisos = []
-    etapas = Etapas(coletor, relogio)
+    llm = llm if llm is not None and llm.ligado else None
+    etapas = Etapas(coletor, llm, relogio)
     base = url_base(entrada)
 
     with etapas.medir("canal de referência"):
@@ -165,6 +239,9 @@ def descobrir(entrada, cfg, coletor, exclusoes=frozenset(), agora=None, log=lamb
     if not unigramas and not frases:
         avisos.append(f"Nenhum termo aparece em {cfg.min_videos_termo}+ vídeos distintos "
                       "(FAREJADOR_MIN_VIDEOS_TERMO); só títulos foram usados nas buscas.")
+    if llm:
+        with etapas.medir("LLM: consultas"):
+            consultas += _consultas_llm(llm, ref, videos, unigramas, frases, ignorar, consultas, cfg, avisos, log)
     if not consultas:
         avisos.append("Nenhuma consulta montada: nada foi buscado.")
 
@@ -184,7 +261,7 @@ def descobrir(entrada, cfg, coletor, exclusoes=frozenset(), agora=None, log=lamb
         c["handle"] = c["handle"] or d.get("handle")
     for cid, m in citados.items():
         c = candidatos.setdefault(cid, _novo(cid))
-        for k in ("mencoes", "seguidores", "verificado", "atividade"):
+        for k in ("mencoes", "seguidores", "verificado", "atividade", "titulos_recentes"):
             c[k] = m.get(k)
         c["nome"] = c["nome"] or m["nome"]
         c["handle"] = c["handle"] or m["handle"]
@@ -223,17 +300,17 @@ def descobrir(entrada, cfg, coletor, exclusoes=frozenset(), agora=None, log=lamb
     with etapas.medir("checagem de atividade"):
         for c in a_checar[: cfg.verificar_atividade]:
             log(f"checando atividade de {c.get('nome') or c['channel_id']}…")
-            info = coletor.canal(f"https://www.youtube.com/channel/{c['channel_id']}", 5)
+            info = coletor.canal(f"https://www.youtube.com/channel/{c['channel_id']}", VIDEOS_CANDIDATO)
             if info:
-                c["handle"] = c.get("handle") or info.get("handle")
-                c["nome"] = c.get("nome") or info.get("nome")
-                c["seguidores"] = info.get("seguidores")
-                c["verificado"] = True
-                c["atividade"] = ranking.atividade([v["timestamp"] for v in info["videos"]], cfg.dias_ativo, agora)
+                _dados_do_canal(c, info, cfg, agora)
 
-    inativos = [c.get("nome") or c["channel_id"] for c in lista if c["atividade"] == "inativo"]
-    removidos["inativo"] = len(inativos)
-    lista = [c for c in lista if c["atividade"] != "inativo"]
+    def filtrar_inativos(cs):
+        fora = [c for c in cs if c["atividade"] == "inativo"]
+        inativos.extend(c.get("nome") or c["channel_id"] for c in fora)
+        return [c for c in cs if c["atividade"] != "inativo"]
+
+    inativos = []
+    lista = filtrar_inativos(lista)
     for c in lista:
         ranking.pontuar(c, total, cfg.dias_ativo)
         c["url"] = _url_canal(c)
@@ -241,12 +318,25 @@ def descobrir(entrada, cfg, coletor, exclusoes=frozenset(), agora=None, log=lamb
     fortes = [c for c in lista if c["sinais"] >= cfg.min_sinais]
     fracos = [c for c in lista if c["sinais"] < cfg.min_sinais]
 
+    avaliados = 0
+    if llm and fortes:
+        with etapas.medir("LLM: reavaliação"):
+            avaliados = _avaliar_llm(llm, coletor, fortes, _perfil(ref, unigramas, frases, videos), cfg, agora,
+                                     avisos, log)
+        fortes = filtrar_inativos(fortes)
+    ranking.combinar(fortes, cfg.llm_peso if llm else 0)
+    ranking.combinar(fracos, 0)
+    removidos["inativo"] = len(inativos)
+    if llm:
+        avisos.extend(llm.avisos)
+
     def so(c):
         return "menção" if c["mencoes"] else "destaque" if c["destaque"] else "1 busca"
 
     def exportar(cs):
-        campos = ("nome", "handle", "channel_id", "url", "score", "sinais", "motivo", "atividade",
-                  "destaque", "mencoes", "consultas", "videos", "seguidores")
+        campos = ("nome", "handle", "channel_id", "url", "score_final", "score", "nota_llm", "justificativa_llm",
+                  "sinais", "motivo", "atividade", "destaque", "mencoes", "consultas", "videos",
+                  "titulos_recentes", "seguidores")
         return [{k: c.get(k) for k in campos} for c in cs]
 
     return {
@@ -266,6 +356,9 @@ def descobrir(entrada, cfg, coletor, exclusoes=frozenset(), agora=None, log=lamb
         "inativos": inativos,
         "fracos": {"total": len(fracos), "por_sinal": {s: sum(so(c) == s for c in fracos)
                                                        for s in ("1 busca", "menção", "destaque")}},
+        "llm": {"ligado": llm is not None, "modelo": llm.modelo if llm else None,
+                "consultas": sum(o == "llm" for _, o in consultas), "avaliados": avaliados,
+                "peso": cfg.llm_peso if llm else 0},
         "avisos": avisos,
         "etapas": etapas.lista,
         "requisicoes": {"rede": coletor.requisicoes, "cache": coletor.acertos_cache,

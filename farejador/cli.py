@@ -9,6 +9,7 @@ from .canais import ler_exclusoes
 from .coleta import BloqueioYouTube, Coletor
 from .config import Config
 from .descoberta import ErroCanal, descobrir
+from .llm import LLM
 
 
 def _args(argv):
@@ -35,12 +36,20 @@ def _corta(t, n):
 
 
 def tabela(candidatos, top):
-    linhas = [f"{'#':>3}  {'score':>5}  {'nome':<32}  {'@handle / ID':<26}  url"]
-    linhas.append("-" * 110)
+    com_llm = any(c.get("nota_llm") is not None for c in candidatos)
+    cab_llm = f"{'final':>5}  {'llm':>4}  " if com_llm else ""
+    linhas = [f"{'#':>3}  {cab_llm}{'score':>5}  {'nome':<32}  {'@handle / ID':<26}  url"]
+    linhas.append("-" * (110 + len(cab_llm)))
+    recuo = " " * (12 + len(cab_llm))
     for i, c in enumerate(candidatos[:top], 1):
         ident = c.get("handle") or c["channel_id"]
-        linhas.append(f"{i:>3}  {c['score']:>5}  {_corta(c.get('nome'), 32):<32}  {_corta(ident, 26):<26}  {c['url']}")
-        linhas.append(f"{'':>12}por quê: {c['motivo']}")
+        nota = c.get("nota_llm")
+        col_llm = (f"{c['score_final']:>5.1f}  {('-' if nota is None else f'{nota:g}'):>4}  " if com_llm else "")
+        linhas.append(f"{i:>3}  {col_llm}{c['score']:>5}  {_corta(c.get('nome'), 32):<32}  "
+                      f"{_corta(ident, 26):<26}  {c['url']}")
+        linhas.append(f"{recuo}por quê: {c['motivo']}")
+        if nota is not None:
+            linhas.append(f"{recuo}LLM {nota:g}/10: {c['justificativa_llm']}")
     return "\n".join(linhas)
 
 
@@ -67,10 +76,17 @@ def _resumo(r, cfg):
         print(f"Fracos (< {cfg.min_sinais} sinais): {f['total']} ({detalhe})"
               + ("" if cfg.mostrar_fracos else " — ocultos, use --mostrar-fracos"))
     print(f"Requisições: {r['requisicoes']['rede']} na rede, {r['requisicoes']['cache']} do cache")
+    lm = r["llm"]
+    if lm["ligado"]:
+        print(f"LLM: {lm['modelo']} — {lm['consultas']} consultas geradas, {lm['avaliados']} candidatos avaliados, "
+              f"peso {lm['peso']:g} na ordem final")
+    else:
+        print("LLM: desligado (modo determinístico)")
     if cfg.verbose:
         print("\nCusto por etapa:")
         for e in r["etapas"]:
-            print(f"  {e['etapa']:<32} {e['rede']:>4} na rede  {e['cache']:>4} do cache  {e['segundos']:>7.1f} s")
+            llm_txt = f"  {e['llm']:>3} LLM  {e['llm_cache']:>3} LLM do cache" if "llm" in e else ""
+            print(f"  {e['etapa']:<32} {e['rede']:>4} na rede  {e['cache']:>4} do cache  {e['segundos']:>7.1f} s{llm_txt}")
         for ig in m["ignorados"]:
             print(f"  menção ignorada: {ig['canal']} — {ig['motivo']}")
         for inv in m["invalidos"]:
@@ -92,6 +108,7 @@ def main(argv=None):
 
     cache = Cache(cfg.caminho("dados") / "farejador.db", cfg.cache_horas)
     coletor = Coletor(cfg, cache)
+    llm = LLM(cfg, cache)
     exclusoes = ler_exclusoes(cfg.caminho("exclude"))
 
     def log(m, detalhe=False):
@@ -99,7 +116,7 @@ def main(argv=None):
             print(f"· {m}", file=sys.stderr, flush=True)
 
     try:
-        r = descobrir(a.canal, cfg, coletor, exclusoes, log=log)
+        r = descobrir(a.canal, cfg, coletor, exclusoes, log=log, llm=llm)
     except BloqueioYouTube as e:
         print(f"\nO YouTube bloqueou as requisições (anti-bot/limite). Parei para não piorar.\n"
               f"Mensagem: {e}\nTente mais tarde ou aumente FAREJADOR_PAUSA. "
