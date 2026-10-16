@@ -32,8 +32,40 @@ O perfil enviado ao modelo veio da mesma amostra, então ele concluiu que a refe
 - **yt-dlp:** 25 avisos de "No supported JavaScript runtime (deno)". Os detalhes foram lidos mesmo assim (30/30 com tags), mas é um risco futuro. Houve também 4 avisos de "Incomplete yt initial data", instabilidade do YouTube.
 - **Fracos:** 222 candidatos com 1 sinal só (todos "1 busca"). As 16 buscas são dispersas demais para se cruzarem.
 
+## Comparativo: @SERTECMANUTENCAO (eletrônica, canal de nicho)
+
+Qualidade aparente: **bem melhor**, mas só você confirma. Os 20 nomes da lista principal são, quase todos, canais de eletrônica ou elétrica (Global Tec Brasil, Electrolab, Eletrônica Brothers, Eletrônica Fácil, JuliaLabs, WR Kits…).
+
+- **O LLM agregou:** rebaixou Manual do Mundo (score 70, o mais alto, nota 3: ciência geral), BRODIG TV e Comprou Avaliou (nota 2: generalistas).
+- **Leitura:** em canal de nicho técnico, as palavras-chave funcionam. Em canal generalista de comentário, com amostra recente enviesada (Café Brasil), o pipeline falha.
+- **Custo:** 78 requisições e cerca de 6 min (detalhes 82 s, checagem de atividade 59 s, LLM 148 s para 15 notas, ~10 s cada).
+
+### BUG confirmado: os títulos da lista de vídeos vêm traduzidos para o inglês
+
+Comparei `data/bruto/canal_*` (lista flat) com `data/bruto/video_*` (extração completa) nos 30 vídeos do Sertec. **Os 30 diferem.** O flat traz "Happy Teacher's Day" onde o original é "Feliz dia do Professor", e "Mastering Switch-Mode Power Supply Repair" onde o original é "Domine o reparo em Fontes Chaveadas". O YouTube entrega a tradução automática porque o yt-dlp pede a página em inglês. Isso explica:
+
+- buscas por título em inglês ("AstroAI Smart Digital Multimeter MUS10KRD", "Happy Teacher's Day");
+- palavras-chave e frases mistas ("electronic components" ao lado de "componentes eletrônicos"), que dividem a contagem por vídeo;
+- no Café Brasil, os títulos "The challenges of marketing in agribusiness" etc. O viés para ANDAV/eleição continua valendo, mas o idioma também atrapalhou.
+
+**Correção proposta:** usar o título da extração completa, que já é feita para os 30 vídeos. É preciso guardar `title` em `_reduzir_video` e versionar a chave do cache (`video2:`), o que custa reler os 30 vídeos uma vez por canal já em cache.
+
+Alternativa descartada: pedir o YouTube em português (`lang=pt`). Isso quebraria as datas aproximadas, que o yt-dlp só sabe ler em inglês ("3 weeks ago") e das quais depende a checagem de atividade.
+
+Os títulos dos candidatos (nos resultados de busca e nas abas Vídeos), que vão para o LLM, provavelmente também vêm em inglês. Corrigir isso custaria 1 extração completa por vídeo; não vale. O LLM lida bem com títulos traduzidos.
+
+### Outros problemas vistos no Sertec
+
+- **Título sem palavra-chave virou busca** ("Happy Teacher's Day"). Exigir pelo menos uma palavra-chave no título escolhido.
+- **Bloco de tags repetido infla frases:** "filtro linha", "filtro linha ferro", "filtro linha gamer" e "filtro linha metal", todas em 6 vídeos. Descartar a frase que só estende outra com a mesma contagem.
+- **5 candidatos ficaram sem nota** (MW Informática, Ser Eletricista, WR Kits, Tech em 10, Zoide Tech) pelo limite de 15 e afundaram para 2,9. A normalização divide pelo maior score, que era o Manual do Mundo (70, rebaixado pelo LLM), e isso comprime todo mundo. Opções: subir `FAREJADOR_LLM_AVALIAR` para 20 ou normalizar pelo percentil 90.
+- **2 canais "só menção" ficaram ocultos** (@abstratoeletronica, @dktecnologia-s9g). Vale olhar com `--mostrar-fracos`; é a decisão pendente sobre menção valer 2 sinais.
+- **Cosmético:** "(tudo contido em 'sertecmanutencao')" aparece duas vezes, porque o nome e o handle compactados coincidem. Remover a duplicata.
+- O `--ignorar-termos` do Café Brasil foi reaproveitado aqui; não teve efeito.
+
 ## Propostas, por prioridade (aguardando decisão)
 
+0. **Corrigir os títulos traduzidos** (bug acima): mudança pequena, custa reler os detalhes uma vez.
 1. **Ampliar a amostra com as playlists da aba Início.** A aba já é lida. Ler os títulos de cada playlist em modo flat custa 1 requisição por playlist (6 aqui). Os títulos de playlists ("Podcast Café Brasil", "Iscas Intelectuais") e os vídeos delas entram nas palavras-chave e no perfil do LLM. Opcional: incluir as abas `/podcasts` e `/streams`.
 2. **Proximidade de tamanho.** Penalizar o candidato com N vezes mais inscritos que a referência (ex.: mais de 20 vezes). O dado já chega sem custo para quem passa pela checagem de atividade, pela validação de menção ou pela reavaliação do LLM. Para os demais, custaria 1 requisição. Decidir se aplica só onde o dado já existe.
 3. **Prompt do LLM.** Montar o perfil com a descrição do canal e os títulos das playlists, e instruir que um canal generalista de notícias tenha no máximo nota 4. Avaliar o corte por nota mínima (hoje a nota só reordena).
