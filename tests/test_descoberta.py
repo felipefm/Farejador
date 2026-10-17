@@ -142,6 +142,8 @@ class TestDescoberta(unittest.TestCase):
         self.assertNotIn("Solo", nomes)                    # 1 menção só
         self.assertEqual(r["fracos"], {"total": 2, "por_sinal": {"1 busca": 1, "menção": 1, "destaque": 0}})
         self.assertEqual(r["candidatos_fracos"], [])
+        self.assertTrue(all(c["atividade"] == "ativo" for c in r["fracos_ativos"]))  # para o cruzamento de sementes
+        self.assertIsInstance(r["variantes"], dict)
         self.assertTrue(all(c["sinais"] >= 2 for c in r["candidatos"]))
         self.assertNotIn("https://www.youtube.com/channel/UCraro/videos", chamadas)  # fraco oculto: não checa
 

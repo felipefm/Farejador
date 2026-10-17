@@ -6,6 +6,7 @@ no próximo arranque.
 """
 import threading
 import traceback
+from collections import Counter
 
 from .cache import Cache
 from .canais import ler_exclusoes
@@ -49,6 +50,7 @@ class Executor:
         try:
             cache = Cache(self.cfg.caminho("dados") / "farejador.db", self.cfg.cache_horas)  # conexão desta thread
             coletor = Coletor(self.cfg, cache)
+            fracos = {}  # semente -> fracos ativos; cruzados entre sementes no fim
             for i, semente in enumerate(sementes, 1):
                 llm = LLM(self.cfg, cache)  # por semente: um timeout numa não desliga o LLM nas outras
                 prefixo = f"[{i}/{len(sementes)}] {semente}: "
@@ -65,9 +67,11 @@ class Executor:
                     resumo[semente] = {"erro": str(e)}  # uma semente ruim não derruba as outras
                     continue
                 novos = self.banco.gravar_candidatos(semente, r["candidatos"])
+                fracos[semente] = r.get("fracos_ativos") or []
                 resumo[semente] = {"candidatos": len(r["candidatos"]), "novos": novos, "avisos": r["avisos"],
                                    "requisicoes": r["requisicoes"], "consultas": len(r["consultas"]),
                                    "llm": r.get("llm"), "cookies": r.get("cookies")}
+            self._cruzar_fracos(fracos, resumo)
             if resumo and all("erro" in v for v in resumo.values()):
                 estado, erro = "erro", "nenhuma semente pôde ser lida"
         except BloqueioYouTube as e:
@@ -78,3 +82,19 @@ class Executor:
             self.banco.atualizar_execucao(id_, estado=estado, erro=erro, resumo=resumo,
                                           progresso="concluída" if estado == "ok" else "falhou")
             self.atual = None
+
+    def _cruzar_fracos(self, fracos, resumo):
+        """Fraco (1 sinal) numa semente entra na lista se o canal também apareceu em outra semente:
+        noutra semente desta execução (forte ou fraco) ou já está entre os novos vindo de outra semente.
+        Só os fracos com vídeo recente nas buscas entram (os fracos não passam pela checagem de atividade)."""
+        if not fracos:
+            return
+        existentes = self.banco.sementes_dos_novos()  # já inclui os fortes gravados nesta execução
+        vezes = Counter(cid for lista in fracos.values() for cid in {c["channel_id"] for c in lista})
+        for semente, lista in fracos.items():
+            promovidos = [c for c in lista if vezes[c["channel_id"]] >= 2
+                          or set(existentes.get(c["channel_id"], ())) - {semente}]
+            if promovidos:
+                novos = self.banco.gravar_candidatos(semente, promovidos, fraco=True)
+                resumo[semente]["cruzados"] = len(promovidos)
+                resumo[semente]["novos"] += novos

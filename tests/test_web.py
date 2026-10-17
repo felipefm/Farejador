@@ -40,6 +40,36 @@ class Base(unittest.TestCase):
 
 
 class TestExecutor(Base):
+    def test_fraco_entra_quando_aparece_em_outra_semente(self):
+        def com_fracos(fortes, fracos):
+            r = resultado(*fortes)
+            r["fracos_ativos"] = [dict(c, score_final=1.0, motivo="1 busca") for c in resultado(*fracos)["candidatos"]]
+            return r
+        ex = Executor(self.cfg, self.banco, self.descobrir_falso({
+            "@a": com_fracos(["x"], ["f1", "f2"]),
+            "@b": com_fracos(["y"], ["f1", "x"]),
+        }), em_thread=False)
+        e = self.banco.execucao(ex.iniciar(["@a", "@b"]))
+        novos = {c["channel_id"]: c for c in self.banco.candidatos("novo", bonus_semente=3)}
+        self.assertEqual(set(novos), {"x", "y", "f1"})  # f2 só apareceu (fraco) em @a
+        self.assertEqual(novos["f1"]["sementes"], ["@a", "@b"])
+        self.assertIn("fraco nesta semente", novos["f1"]["motivo"])
+        self.assertEqual((novos["x"]["sementes"], novos["x"]["score_final"], novos["x"]["motivo"]),
+                         (["@a", "@b"], 5.0, "teste"))  # fica a versão forte
+        self.assertEqual(novos["x"]["bonus_sementes"], 3)
+        self.assertEqual((e["resumo"]["@a"]["cruzados"], e["resumo"]["@b"]["cruzados"]), (1, 2))
+
+    def test_fraco_cruza_com_rodada_anterior_mas_nao_com_a_mesma_semente(self):
+        def so_fraco(cid):
+            r = resultado()
+            r["fracos_ativos"] = [dict(resultado(cid)["candidatos"][0], score_final=1.0)]
+            return r
+        Executor(self.cfg, self.banco, self.descobrir_falso({"@a": resultado("z", "w")}), em_thread=False).iniciar(["@a"])
+        Executor(self.cfg, self.banco, self.descobrir_falso({"@b": so_fraco("z"), "@a": so_fraco("w")}),
+                 em_thread=False).iniciar(["@b", "@a"])
+        self.assertEqual(self.banco.candidato("z")["sementes"], ["@a", "@b"])  # outra semente: entra
+        self.assertEqual(self.banco.candidato("w")["sementes"], ["@a"])        # mesma semente: nada muda
+
     def test_roda_grava_e_exclui_decididos(self):
         ex = Executor(self.cfg, self.banco, self.descobrir_falso({"@a": resultado("x", "y"), "@b": resultado("y", "z")}),
                       em_thread=False)

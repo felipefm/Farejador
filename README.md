@@ -7,7 +7,7 @@ Descobre canais novos do YouTube a partir de um canal de referência. Usa só o 
 1. **Canal de referência.** Lê os últimos 30 vídeos em modo flat (1 requisição) e abre cada um por completo para obter o título original, a descrição e as tags (1 requisição por vídeo, com cache).
 2. **Canais em destaque.** Tenta a aba "Canais" e depois a prateleira da aba Início. O aviso na saída diz se a aba *falhou* (erro do yt-dlp), se veio *vazia* (0 itens) ou se veio *sem canais* (só vídeos/playlists). Também avisa quando o yt-dlp declarou ter ignorado itens que não sabe ler.
 3. **Playlists da aba Início.** Lê até 6 playlists, com 15 títulos cada (1 requisição por playlist). O núcleo do canal costuma estar nelas, não nos vídeos mais recentes: no Café Brasil, os recentes eram palestras de um congresso e cortes de eleição. Os vídeos das playlists entram na contagem das palavras-chave, e os títulos das playlists reforçam termos, como as tags do canal. Os títulos das playlists também vão para o LLM.
-4. **Palavras-chave.** Vêm de títulos e tags dos vídeos. Um termo só conta se aparecer em pelo menos 3 vídeos distintos. São ignorados: stopwords PT/EN, palavras genéricas de YouTube, o nome do canal, qualquer palavra de 4 ou mais letras contida no @handle (`@LucianoPiresCafeBrasil` elimina café, brasil, pires, luciano) e os termos passados em `--ignorar-termos`.
+4. **Palavras-chave.** Vêm de títulos e tags dos vídeos. Um termo só conta se aparecer em pelo menos 3 vídeos distintos. São ignorados: stopwords PT/EN, palavras genéricas de YouTube, o nome do canal, qualquer palavra de 4 ou mais letras contida no @handle (`@LucianoPiresCafeBrasil` elimina café, brasil, pires, luciano) e os termos passados em `--ignorar-termos`. **Palavras quase iguais contam como uma só:** com 5 letras ou mais, as mesmas 4 primeiras letras e uma letra de diferença, a forma menos frequente vira a mais frequente ("minnue" → "minnie", "carros" → "carro", "eletronico" → "eletronica"). Sem isso, um erro de digitação repetido nos títulos virava uma segunda busca quase idêntica e dava dois sinais ao mesmo canal. A saída mostra as variantes unidas.
 5. **Menções.** Busca nas descrições links de canais do YouTube (`/@handle`, `/channel/UC…`, `/c/…`, `/user/…`) e conta em quantos vídeos distintos cada um aparece. Ignora o próprio canal, canais cujo nome/handle contém o nome do criador e links presentes em 80% ou mais das descrições (rodapé). Cada canal citado é validado pelo yt-dlp: até 15, 1 requisição cada.
 6. **Buscas** (8 no total, `ytsearch`), nesta ordem de prioridade:
    1. 3 títulos de vídeos recentes, limpos de nome do programa, número de episódio e hashtags, diferentes entre si e com pelo menos uma palavra-chave;
@@ -88,7 +88,8 @@ Fluxo de uma rodada: rodar a descoberta → aprovar e descartar → inscrever os
 - **Descartado é definitivo:** nunca volta à lista e nunca é sobrescrito por uma descoberta nova.
 - Aprovados e descartados entram na exclusão das próximas descobertas e não gastam busca nem avaliação do LLM de novo.
 - **Arquivar** tira aprovados e descartados das abas e da exportação, mas eles **continuam na exclusão**. **Remover do arquivo** apaga o registro: o canal sai da exclusão e pode reaparecer como novo numa descoberta futura.
-- Um canal que aparece em várias sementes acumula a lista `sementes`. Isso ainda não dá bônus no score.
+- **Várias sementes:** um canal que aparece em mais de uma semente acumula a lista `sementes` e sobe na lista de novos. A ordem é `final + FAREJADOR_BONUS_SEMENTE × (sementes − 1)` (padrão 3, na escala 0–10 do final), e o cartão mostra o bônus. Fica guardada a versão de maior score entre as sementes.
+- **Fracos cruzados:** quem teve poucos sinais numa semente (por exemplo, 1 busca) normalmente fica de fora. Ele entra na lista se também apareceu em **outra** semente, na mesma rodada ou como novo de uma rodada anterior. Só entram fracos com vídeo recente nos resultados de busca, porque os fracos não passam pela checagem de atividade. O motivo começa com "fraco nesta semente, mas apareceu em outra", e o resumo mostra quantos entraram assim. Isso só acontece no servidor; a CLI roda uma semente por vez.
 
 ### API
 
@@ -188,6 +189,7 @@ Toda opção da CLI também pode vir de uma variável de ambiente `FAREJADOR_<NO
 | `FAREJADOR_IGNORAR_TERMOS` | — | termos extras a ignorar, separados por vírgula |
 | `FAREJADOR_MAX_MENCOES` | 15 | canais citados validados |
 | `FAREJADOR_MIN_SINAIS` | 2 | sinais para entrar na lista principal |
+| `FAREJADOR_BONUS_SEMENTE` | 3 | servidor: bônus na ordem dos novos por semente extra (0 = desliga) |
 | `FAREJADOR_VERIFICAR_ATIVIDADE` | 25 | candidatos com atividade checada no canal |
 | `FAREJADOR_DIAS_ATIVO` | 60 | janela de atividade (inativo é excluído) |
 | `FAREJADOR_CACHE_HORAS` | 168 | validade do cache (0 = nunca expira) |
@@ -241,7 +243,7 @@ Os testes não acessam a rede: o yt-dlp, o LLM e o MeTube são simulados. Para o
 - **Funciona bem para canais de nicho, mal para canais ecléticos.** Contar palavras por vídeo exige que o assunto se repita nos títulos. Em canais de nicho (testados @SERTECMANUTENCAO, de eletrônica, e @DisneyDesenhos) a lista principal saiu no nicho. Em canais ecléticos, cada episódio trata de um assunto, e o que se repete é o nome da série ou do patrocinador.
   - No @LucianoPiresCafeBrasil, "Iscas Intelectuais" e "Videocast Nakata" (Nakata é um patrocinador de autopeças) viraram as principais palavras-chave, e as buscas trouxeram lojas de autopeças.
   - O que ajuda: `--ignorar-termos` com os nomes de série e patrocinador e `FAREJADOR_LLM_NOTA_MIN`. Com esse corte ligado, a saída honesta pode ser "nenhum canal parecido encontrado".
-  - Múltiplas sementes combinadas seriam a correção de fundo. O servidor já roda várias sementes, mas cada uma é avaliada sozinha (sem ranking cruzado), e a CLI aceita uma só.
+  - Várias sementes do mesmo nicho ajudam: o servidor dá bônus a quem aparece em mais de uma e recupera os fracos que se repetem entre elas. Um telejornal que surge numa semente eclética raramente se repete nas outras.
 - **Bloco de tags repetido em todos os vídeos** ("alta qualidade excelente imagem dublado" no @DisneyDesenhos) vira palavra-chave com contagem máxima. Costuma não ocupar vaga de busca porque as frases vêm antes, mas aparece na lista de palavras-chave.
 - **Palavras-chave só de títulos e tags.** As descrições dos vídeos ficam de fora das palavras-chave: costumam repetir rodapé (patrocínio, redes sociais), que dominaria a contagem. Elas são usadas só para as menções.
 - **Ignorar pelo @handle é agressivo.** Qualquer palavra de 4 ou mais letras contida no handle some, mesmo quando é assunto legítimo (ex.: "brasil" num canal sobre o Brasil). Os nomes de quadros e programas que não estão no handle precisam de `--ignorar-termos`.
@@ -257,16 +259,14 @@ Os testes não acessam a rede: o yt-dlp, o LLM e o MeTube são simulados. Para o
 - **Sem mensagem `system`.** Tudo vai numa única mensagem `user`, porque alguns templates (Gemma) recusam o papel `system`. A temperatura é fixa em 0,2.
 - **A nota do LLM é opinião de um modelo pequeno.** Por padrão, ela só reordena e não substitui os sinais determinísticos. Só tira alguém da lista se `FAREJADOR_LLM_NOTA_MIN` estiver ligado.
 - **Servidor sem autenticação e uma descoberta por vez.** Pensado para uma pessoa na rede local.
-- **Palavras quase iguais contam separado.** Um erro de digitação nos títulos ("minnie" e "minnue" no @cartoonpopz) vira uma segunda busca quase idêntica, e a mesma busca acaba contando dois sinais.
+- **Junção de palavras quase iguais é heurística.** Ela também junta gênero e plural ("brasileira" → "brasileiro"), o que em geral ajuda a contagem, e pode juntar palavras distintas que começam igual e diferem numa letra no fim ("virar" → "viram"). A regra das 4 primeiras letras evita os casos vistos nos testes ("steam"/"stream", "estudo"/"estado"). As variantes unidas aparecem na saída.
 
 ## Ideias não implementadas
 
 Levantadas nos testes; nenhuma foi decidida:
 
-- Juntar palavras-chave quase iguais (minnie/minnue).
 - Detectar nomes de série e de patrocinador (Café Brasil) e blocos de tags presentes em todos os vídeos (Disney).
 - Penalidade de tamanho (candidato muito maior que a referência).
 - Prompt do LLM com teto de nota para canais generalistas; `FAREJADOR_LLM_AVALIAR` 20.
 - Menção valendo 2 sinais.
-- Ranking cruzado entre sementes (bônus para quem aparece em várias).
 - Desarquivar um canal sem apagá-lo; favicon na tela.

@@ -118,7 +118,7 @@ def criar_app(cfg=None, banco=None, executor=None, enviar_metube=metube.enviar):
     def listar_candidatos(estado: str = "novo"):
         if estado not in LISTAS:
             raise HTTPException(400, f"estado deve ser um de {', '.join(LISTAS)}")
-        return banco.candidatos(estado)
+        return banco.candidatos(estado, cfg.bonus_semente)
 
     @app.post("/api/arquivar")
     def arquivar():

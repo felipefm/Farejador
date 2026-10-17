@@ -66,6 +66,8 @@ def _resumo(r, cfg):
     print(f"Termos ignorados: {', '.join(r['termos_ignorados']) or '(nenhum)'}")
     fmt = lambda xs: ", ".join(f"{x['termo']} ({x['videos']})" for x in xs) or "(nenhuma)"  # noqa: E731
     print(f"Palavras-chave (nº de vídeos): {fmt(r['palavras_chave'])}")
+    if r.get("variantes"):
+        print("Variantes unidas: " + ", ".join(f"{a} → {b}" for a, b in r["variantes"].items()))
     print(f"Frases (nº de vídeos): {fmt(r['frases'])}")
     print("Buscas: " + " | ".join(f"[{c['origem']}] {c['consulta']}" for c in r["consultas"]))
     d = r["destaques"]

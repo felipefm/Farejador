@@ -5,6 +5,7 @@ Regras dos candidatos:
 - descartado é definitivo: nunca volta à lista nem é sobrescrito por uma descoberta nova.
 - aprovados e descartados entram na lista de exclusão das próximas descobertas (não gastam busca
   nem avaliação do LLM de novo).
+- na lista de novos, cada semente extra em que o canal apareceu soma `bonus_semente` à ordem.
 - arquivar tira os decididos das abas Aprovados/Descartados (e da exportação), mas eles continuam
   na exclusão. Remover do arquivo apaga o registro: o canal volta a poder aparecer como novo.
 """
@@ -139,12 +140,18 @@ class Banco:
             return [_execucao(r) for r in db.execute("SELECT * FROM execucoes ORDER BY id DESC LIMIT ?", (limite,))]
 
     # ---------------------------------------------------------------- candidatos
-    def gravar_candidatos(self, semente, candidatos):
-        """Insere novos e atualiza os 'novo'. Aprovado/descartado só ganham a semente na lista."""
+    def gravar_candidatos(self, semente, candidatos, fraco=False):
+        """Insere novos e atualiza os 'novo' (fica a versão de maior score_final entre as sementes).
+
+        Aprovado/descartado só ganham a semente na lista. fraco=True: candidato com poucos sinais
+        nesta semente, gravado porque também apareceu em outra (o motivo diz isso).
+        """
         novos = 0
         with self._conexao() as db:
             for c in candidatos:
-                atual = db.execute("SELECT estado, sementes FROM candidatos WHERE channel_id = ?",
+                if fraco:
+                    c = dict(c, motivo=f"fraco nesta semente, mas apareceu em outra; {c.get('motivo') or ''}".rstrip("; "))
+                atual = db.execute("SELECT estado, sementes, score_final FROM candidatos WHERE channel_id = ?",
                                    (c["channel_id"],)).fetchone()
                 if atual is None:
                     db.execute(
@@ -159,7 +166,8 @@ class Banco:
                 sementes = json.loads(atual["sementes"])
                 if semente not in sementes:
                     sementes.append(semente)
-                if atual["estado"] == "novo":
+                melhor = (c.get("score_final") or 0) >= (atual["score_final"] or 0)
+                if atual["estado"] == "novo" and melhor:
                     db.execute(
                         "UPDATE candidatos SET nome = ?, handle = ?, url = ?, score_final = ?, score = ?, "
                         "nota_llm = ?, justificativa_llm = ?, motivo = ?, sementes = ?, seguidores = ?, "
@@ -172,7 +180,13 @@ class Banco:
                                (json.dumps(sementes, ensure_ascii=False), c["channel_id"]))
         return novos
 
-    def candidatos(self, estado="novo"):
+    def sementes_dos_novos(self):
+        """{channel_id: [sementes]} dos candidatos ainda novos."""
+        with self._conexao() as db:
+            return {r["channel_id"]: json.loads(r["sementes"])
+                    for r in db.execute("SELECT channel_id, sementes FROM candidatos WHERE estado = 'novo'")}
+
+    def candidatos(self, estado="novo", bonus_semente=0.0):
         if estado not in LISTAS:
             raise ValueError(f"estado inválido: {estado!r}")
         if estado == "arquivado":
@@ -182,7 +196,13 @@ class Banco:
             sql = f"SELECT * FROM candidatos WHERE estado = ? AND arquivado_em IS NULL ORDER BY {ordem}"
             args = (estado,)
         with self._conexao() as db:
-            return [_candidato(r) for r in db.execute(sql, args)]
+            lista = [_candidato(r) for r in db.execute(sql, args)]
+        if estado == "novo":
+            for c in lista:  # quem aparece em várias sementes é quase certamente do nicho
+                c["bonus_sementes"] = round(bonus_semente * (len(c["sementes"]) - 1), 2)
+                c["ordem"] = round((c["score_final"] or 0) + c["bonus_sementes"], 2)
+            lista.sort(key=lambda c: (-c["ordem"], -(c["score"] or 0)))
+        return lista
 
     def arquivar_decididos(self):
         """Tira aprovados e descartados das abas (continuam na exclusão). Retorna quantos."""

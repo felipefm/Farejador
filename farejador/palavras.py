@@ -93,20 +93,65 @@ def _bigramas(toks):
     return [(f"{a[0]} {b[0]}", f"{a[1]} {b[1]}") for a, b in zip(toks, toks[1:]) if a[0] != b[0]]
 
 
-def extrair(videos, tags_canal=(), descricao_canal="", ignorar=SEM_IGNORADOS, min_videos=3, limite=15):
+MIN_LETRAS_VARIANTE = 5
+PREFIXO_VARIANTE = 4  # "minn-ie"/"minn-ue" juntam; "st-eam"/"st-ream" e "est-udo"/"est-ado" não
+
+
+def _uma_letra(a, b):
+    """True se a e b diferem por exatamente uma letra trocada, a mais ou a menos."""
+    if a == b or abs(len(a) - len(b)) > 1:
+        return False
+    if len(a) == len(b):
+        return sum(x != y for x, y in zip(a, b)) == 1
+    curta, longa = sorted((a, b), key=len)
+    return any(longa[:k] + longa[k + 1:] == curta for k in range(len(longa)))
+
+
+def variantes(videos, ignorar=SEM_IGNORADOS):
+    """{variante: canônica} para palavras quase iguais nos títulos e tags ("minnue" -> "minnie").
+
+    Erro de digitação repetido nos títulos vira uma segunda palavra-chave e uma segunda busca quase
+    idêntica, e a mesma busca acaba contando dois sinais. Junta só palavras de 5+ letras, com as
+    mesmas 4 primeiras letras (não junta "steam" e "stream", nem "estudo" e "estado") e que diferem
+    em uma letra. A forma
+    canônica é a que aparece em mais vídeos; plural com "s" a mais também é juntado ("carros" -> "carro").
+    """
+    df = Counter()
+    for v in videos:
+        chaves = {c for c, _ in tokens(v.get("titulo", ""), ignorar)}
+        for tag in v.get("tags") or []:
+            chaves |= {c for c, _ in tokens(tag, ignorar)}
+        df.update(chaves)
+    ordem = sorted((c for c in df if len(c) >= MIN_LETRAS_VARIANTE and c.isalpha()), key=lambda c: (-df[c], c))
+    mapa, canonicas = {}, []
+    for c in ordem:
+        alvo = next((o for o in canonicas if o[:PREFIXO_VARIANTE] == c[:PREFIXO_VARIANTE] and _uma_letra(o, c)), None)
+        if alvo:
+            mapa[c] = alvo
+        else:
+            canonicas.append(c)
+    return mapa
+
+
+def extrair(videos, tags_canal=(), descricao_canal="", ignorar=SEM_IGNORADOS, min_videos=3, limite=15, mapa=None):
     """Retorna (unigramas, frases) ordenados por relevância.
 
     videos: [{"titulo": str, "tags": [str]}]. Só títulos e tags dos vídeos contam como evidência:
     um termo/frase precisa estar em `min_videos` vídeos distintos. Tags e descrição do canal só
     reforçam termos que já passaram nesse corte (descrições de vídeo ficam de fora: são cheias de
     rodapé repetido — patrocínio, redes sociais).
+    mapa: {chave variante: chave canônica} (ver `variantes`); a variante conta como a canônica.
     Cada item: {"termo", "chave", "score", "videos"}.
     """
+    mapa = mapa or {}
+
+    def tk(texto):
+        return [(mapa.get(c, c), w) for c, w in tokens(texto, ignorar)]
     score, df, forma = Counter(), Counter(), defaultdict(Counter)
     score_f, df_f, forma_f = Counter(), Counter(), defaultdict(Counter)
 
     for v in videos:
-        toks_titulo = tokens(v.get("titulo", ""), ignorar)
+        toks_titulo = tk(v.get("titulo", ""))
         uni = {c for c, _ in toks_titulo}
         for c, w in toks_titulo:
             forma[c][w] += 1
@@ -116,7 +161,7 @@ def extrair(videos, tags_canal=(), descricao_canal="", ignorar=SEM_IGNORADOS, mi
             forma_f[c][w] += 1
         uni_tag = set()
         for tag in v.get("tags") or []:
-            toks = tokens(tag, ignorar)
+            toks = tk(tag)
             for c, w in toks:
                 uni_tag.add(c)
                 forma[c][w] += 1
@@ -136,12 +181,12 @@ def extrair(videos, tags_canal=(), descricao_canal="", ignorar=SEM_IGNORADOS, mi
 
     # tags do canal: o dono descrevendo o próprio assunto; reforço, não evidência
     for tag in tags_canal:
-        toks = tokens(tag, ignorar)
+        toks = tk(tag)
         for c, _ in toks:
             score[c] += 2.0
         if 2 <= len(toks) <= 3:
             score_f[" ".join(t[0] for t in toks)] += 2.0
-    for c in {c for c, _ in tokens(descricao_canal, ignorar)}:
+    for c in {c for c, _ in tk(descricao_canal)}:
         score[c] += 0.5
 
     def montar(sc, dfs, formas):

@@ -110,3 +110,33 @@ class TestBanco(unittest.TestCase):
         self.assertIsNotNone(r["fim"])
         self.b.atualizar_execucao(e, estado="ok", resumo={"@a": {"candidatos": 1}})
         self.assertEqual(self.b.execucao(e)["resumo"], {"@a": {"candidatos": 1}})
+
+
+
+class TestSementes(unittest.TestCase):
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.b = Banco(Path(self.tmp.name) / "x.db")
+
+    def tearDown(self):
+        self.tmp.cleanup()
+
+    def test_bonus_por_semente_extra(self):
+        self.b.gravar_candidatos("@a", [cand("forte", 9), cand("duplo", 5)])
+        self.b.gravar_candidatos("@b", [cand("duplo", 4)])
+        lista = self.b.candidatos("novo", bonus_semente=3)
+        self.assertEqual([(c["channel_id"], c["ordem"]) for c in lista], [("forte", 9), ("duplo", 8)])  # 5 + 3
+        self.assertEqual(lista[1]["bonus_sementes"], 3)
+        lista = self.b.candidatos("novo", bonus_semente=5)
+        self.assertEqual([c["channel_id"] for c in lista], ["duplo", "forte"])  # 5 + 5 > 9
+        self.assertEqual([c["channel_id"] for c in self.b.candidatos("novo")], ["forte", "duplo"])  # sem bônus
+
+    def test_mantem_a_melhor_versao_entre_sementes(self):
+        self.b.gravar_candidatos("@a", [cand("x", 8, motivo="forte em @a")])
+        self.b.gravar_candidatos("@b", [cand("x", 2, motivo="fraco em @b")], fraco=True)
+        c = self.b.candidato("x")
+        self.assertEqual((c["score_final"], c["motivo"], c["sementes"]), (8, "forte em @a", ["@a", "@b"]))
+
+    def test_motivo_de_fraco_cruzado(self):
+        self.b.gravar_candidatos("@a", [cand("x", 2, motivo="apareceu em 1/8 buscas")], fraco=True)
+        self.assertTrue(self.b.candidato("x")["motivo"].startswith("fraco nesta semente, mas apareceu em outra"))

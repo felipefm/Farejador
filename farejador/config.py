@@ -22,6 +22,7 @@ class Config:
     ignorar_termos: str = ""          # termos extras a ignorar, separados por vírgula
     max_mencoes: int = 15             # canais citados nas descrições validados via yt-dlp (1 req. cada)
     min_sinais: int = 2               # sinais independentes para entrar na lista principal
+    bonus_semente: float = 3.0        # servidor: + na ordem dos novos por semente extra em que o canal apareceu
     verificar_atividade: int = 25     # máx. de candidatos com atividade checada na aba Vídeos
     dias_ativo: int = 60              # sem vídeo nesta janela = inativo (excluído)
     cache_horas: float = 168          # validade do cache (0 = nunca expira)

@@ -266,8 +266,9 @@ def descobrir(entrada, cfg, coletor, exclusoes=frozenset(), agora=None, log=lamb
 
     ignorar = palavras.Ignorados(ref.get("nome") or "", ref.get("handle") or "", cfg.termos_ignorados())
     # vídeos das playlists contam como evidência; títulos das playlists só reforçam (como tags do canal)
+    mapa = palavras.variantes(videos + videos_pl, ignorar)  # "minnue" conta como "minnie"
     unigramas, frases = palavras.extrair(videos + videos_pl, ref["tags"] + titulos_pl, ref["descricao"], ignorar,
-                                         cfg.min_videos_termo)
+                                         cfg.min_videos_termo, mapa=mapa)
     titulos = palavras.titulos_representativos(videos, unigramas, frases, ignorar, cfg.buscas_titulos)
     consultas = busca.montar_consultas(unigramas, frases, cfg.max_buscas, titulos)
     if not unigramas and not frases:
@@ -397,6 +398,7 @@ def descobrir(entrada, cfg, coletor, exclusoes=frozenset(), agora=None, log=lamb
             "titulos_corrigidos": corrigidos, "videos_de_playlists": len(videos_pl),
         },
         "termos_ignorados": ignorar.lista(),
+        "variantes": mapa,
         "palavras_chave": [{"termo": u["termo"], "videos": u["videos"]} for u in unigramas],
         "frases": [{"termo": f["termo"], "videos": f["videos"]} for f in frases],
         "consultas": [{"consulta": q, "origem": o} for q, o in consultas],
@@ -419,4 +421,6 @@ def descobrir(entrada, cfg, coletor, exclusoes=frozenset(), agora=None, log=lamb
         "candidatos": exportar(fortes),
         "reprovados_llm": exportar(reprovados_llm),
         "candidatos_fracos": exportar(fracos) if cfg.mostrar_fracos else [],
+        # para o servidor cruzar sementes: fracos com vídeo recente nas buscas (sem custo extra)
+        "fracos_ativos": exportar([c for c in fracos if c["atividade"] == "ativo"]),
     }

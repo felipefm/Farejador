@@ -212,6 +212,7 @@ function mostrarExecucao(e) {
       `${semente}: ${r.candidatos} candidatos (${r.novos} novos), ${r.consultas} buscas, ` +
       `${r.requisicoes.rede} requisições na rede` +
       (r.requisicoes.limitadas ? `, ${r.requisicoes.limitadas} com 429` : "") +
+      (r.cruzados ? `, ${r.cruzados} fracos entraram por aparecer em outra semente` : "") +
       ` · cookies: ${r.cookies || "não"}` });
     alvo.append(p);
     if (r.avisos?.length) alvo.append(el("ul", { className: "avisos" }, ...r.avisos.map((a) => el("li", { textContent: a }))));
@@ -246,6 +247,7 @@ function cartao(c) {
   const titulo = el("a", { href: c.url, target: "_blank", rel: "noopener", textContent: c.nome || c.channel_id });
   const ident = el("span", { className: "suave", textContent: ` ${c.handle || c.channel_id}` });
   const numeros = [];
+  if (c.bonus_sementes) numeros.push(`ordem ${Number(c.ordem).toFixed(1)} (+${c.bonus_sementes} por ${c.sementes.length} sementes)`);
   if (c.score_final != null) numeros.push(`final ${Number(c.score_final).toFixed(1)}`);
   if (c.score != null) numeros.push(`score ${c.score}`);
   if (c.seguidores != null) numeros.push(`${c.seguidores.toLocaleString("pt-BR")} inscritos`);

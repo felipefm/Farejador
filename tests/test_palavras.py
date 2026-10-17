@@ -1,5 +1,6 @@
 import unittest
 
+from farejador import palavras
 from farejador.palavras import Ignorados, extrair, limpar_titulo, titulos_representativos, tokens
 
 IGN = Ignorados("Café Brasil", "@LucianoPiresCafeBrasil", ["lídercast", "cafezinho"])
@@ -90,3 +91,27 @@ class TestPalavras(unittest.TestCase):
     def test_limpar_titulo_sem_pontuacao_solta(self):
         self.assertEqual(limpar_titulo("🔧 FILTRO DE LINHA… OU UM FILTRO DE LINHA “CAPADO”?"),
                          "FILTRO DE LINHA OU UM FILTRO DE LINHA CAPADO")
+
+
+
+class TestVariantes(unittest.TestCase):
+    def test_junta_erro_de_digitacao_e_plural(self):
+        vs = [{"titulo": "Minnie Mouse e Pluto"}, {"titulo": "Minnie Mouse festa"}, {"titulo": "Minnue Mouse desenho"},
+              {"titulo": "carros antigos"}, {"titulo": "carro velho"}, {"titulo": "carro novo"}]
+        mapa = palavras.variantes(vs)
+        self.assertEqual(mapa, {"minnue": "minnie", "carros": "carro"})
+        uni, frases = palavras.extrair(vs, min_videos=2, mapa=mapa)
+        self.assertEqual([f["termo"] for f in frases], ["minnie mouse"])  # uma busca só, não duas
+        self.assertEqual(frases[0]["videos"], 3)
+        self.assertNotIn("minnue", {u["chave"] for u in uni})
+
+    def test_nao_junta_palavras_diferentes(self):
+        vs = [{"titulo": t} for t in ["steam jogos", "steam ofertas", "stream ao vivo", "estudo dirigido",
+                                      "estado novo", "mouse sem fio", "house music", "game over", "gamer pro"]]
+        self.assertEqual(palavras.variantes(vs), {})  # prefixo curto demais ou palavra curta
+
+    def test_uma_letra(self):
+        self.assertTrue(palavras._uma_letra("minnie", "minnue"))
+        self.assertTrue(palavras._uma_letra("carro", "carros"))
+        self.assertFalse(palavras._uma_letra("carro", "carro"))
+        self.assertFalse(palavras._uma_letra("carro", "carrossel"))
