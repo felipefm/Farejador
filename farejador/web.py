@@ -44,7 +44,8 @@ def criar_app(cfg=None, banco=None, executor=None, enviar_metube=metube.enviar):
         return {"ok": True, "rodando": executor.atual, "llm": bool(cfg.llm_url) and not cfg.sem_llm,
                 "metube": metube.ligado(cfg), "metube_modo": cfg.metube_modo if metube.ligado(cfg) else None,
                 "metube_ao_aprovar": metube.ligado(cfg) and cfg.metube_ao_aprovar,
-                "cookies": cookies.ativo(cfg)[1]}
+                "cookies": cookies.ativo(cfg)[1],
+                "cookies_expirados": cookies.ativo(cfg)[0] is not None and cookies.expirado(cfg) is not None}
 
     # ------------------------------------------------------------ cookies (o conteúdo nunca sai daqui)
     @app.get("/api/cookies")

@@ -70,7 +70,8 @@ class Executor:
                 fracos[semente] = r.get("fracos_ativos") or []
                 resumo[semente] = {"candidatos": len(r["candidatos"]), "novos": novos, "avisos": r["avisos"],
                                    "requisicoes": r["requisicoes"], "consultas": len(r["consultas"]),
-                                   "llm": r.get("llm"), "cookies": r.get("cookies")}
+                                   "llm": r.get("llm"), "cookies": r.get("cookies"),
+                                   "cookies_expirados": r.get("cookies_expirados")}
             self._cruzar_fracos(fracos, resumo)
             if resumo and all("erro" in v for v in resumo.values()):
                 estado, erro = "erro", "nenhuma semente pôde ser lida"

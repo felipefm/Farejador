@@ -177,6 +177,20 @@ class TestDescoberta(unittest.TestCase):
         self.assertIn("429", texto)
         self.assertIn("cookies.txt", texto)
 
+    def test_aviso_de_cookies_expirados(self):
+        from farejador import cookies
+        from tests.test_cookies import VALIDO
+        resp = cenario()
+        resp["https://www.youtube.com/watch?v=r0"]["_avisos"] = ["The provided YouTube account cookies are no longer valid."]
+        fab, _ = fabrica(resp)
+        with tempfile.TemporaryDirectory() as tmp:
+            cfg = Config(pausa=0, dados=tmp)
+            cookies.salvar(cfg, VALIDO)
+            r = descobrir("@LucianoPiresCafeBrasil", cfg, Coletor(cfg, Cache(":memory:"), fab, dormir=lambda s: None),
+                          agora=AGORA)
+        self.assertTrue(r["cookies_expirados"])
+        self.assertIn("expiraram", " ".join(r["avisos"]))
+
     def test_etapas(self):
         r, chamadas = self.rodar()
         etapas = {e["etapa"]: e for e in r["etapas"]}

@@ -127,11 +127,12 @@ O esquema é o mesmo do MeTube:
 
 - **Envio pela tela** (ou `PUT /api/cookies` com o arquivo no corpo): o arquivo vai para `data/cookies.txt`, com permissão 600. O limite é 1 MB, e só é aceito o formato Netscape com cookies de youtube.com. A API nunca devolve o conteúdo.
 - **`FAREJADOR_COOKIES`:** caminho para um arquivo já existente. Se houver um arquivo enviado pela tela, ele tem prioridade. "Remover" na tela (`DELETE /api/cookies`) só apaga o enviado.
+- **Aviso "ffmpeg not found":** com a conta logada, o yt-dlp avalia formatos de download e reclama da falta do ffmpeg. O Farejador nunca baixa vídeo, então esse aviso não é registrado.
 - **Escrita:** o yt-dlp regrava o arquivo a cada extração com os cookies renovados, então ele precisa ser gravável pelo usuário do container (1000).
 
 Cuidados:
 - Use uma conta secundária. Com cookies, as requisições ficam ligadas à conta, e o YouTube pode restringi-la.
-- Exporte os cookies de uma janela anônima e feche a janela depois. Se o navegador continuar usando aquela sessão, o YouTube troca os cookies e o arquivo para de valer.
+- Exporte os cookies de uma janela anônima e feche a janela depois. Se o navegador continuar usando aquela sessão, o YouTube troca os cookies e o arquivo para de valer. Quando o yt-dlp avisa que os cookies "are no longer valid", ele segue sem login. O Farejador registra o aviso, e a tela passa a mostrar "EXPIRADOS" no bloco de cookies e no resumo da rodada até um arquivo novo ser enviado (ou o atual ser removido). A marca não sai sozinha, porque o aviso não aparece em toda requisição: a ausência dele não prova que os cookies voltaram a valer.
 - Cookies reduzem o 429, mas não o eliminam: o limite também é aplicado por IP.
 
 ## LLM local (opcional, desligado por padrão)

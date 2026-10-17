@@ -93,6 +93,37 @@ class TestColetor(Base):
         self.assertEqual(c.requisicoes, 2)
 
 
+class TestExpirados(Base):
+    EXPIROU = ("[youtube:tab] The provided YouTube account cookies are no longer valid. They have likely been "
+               "rotated in the browser as a security measure.")
+
+    def coletor(self, respostas):
+        fab, _ = fabrica(respostas)
+        return Coletor(self.cfg, Cache(":memory:"), fab, dormir=lambda s: None)
+
+    def test_marca_expirado_e_envio_novo_limpa(self):
+        cookies.salvar(self.cfg, VALIDO)
+        c = self.coletor({"ytsearch20:a": dict(BUSCA, _avisos=[self.EXPIROU])})
+        c.buscar("a", 20)
+        self.assertEqual(c.cookies_expirados, 1)
+        self.assertIsNotNone(cookies.estado(self.cfg)["expirado_em"])
+        cookies.salvar(self.cfg, VALIDO)  # exportou de novo
+        self.assertIsNone(cookies.estado(self.cfg)["expirado_em"])
+
+    def test_sem_cookies_o_aviso_nao_marca(self):
+        c = self.coletor({"ytsearch20:a": dict(BUSCA, _avisos=[self.EXPIROU])})
+        c.buscar("a", 20)
+        self.assertEqual(c.cookies_expirados, 0)
+        self.assertIsNone(cookies.expirado(self.cfg))
+
+    def test_aviso_do_ffmpeg_e_ignorado(self):
+        aviso = "ffmpeg not found. The downloaded format may not be the best available."
+        c = self.coletor({"ytsearch20:a": dict(BUSCA, _avisos=[aviso])})
+        c.buscar("a", 20)
+        self.assertEqual(c.avisos_ytdlp, 0)
+        self.assertEqual(c.cache.eventos("aviso"), [])
+
+
 class TestApi(Base):
     def setUp(self):
         super().setUp()
@@ -106,7 +137,11 @@ class TestApi(Base):
         self.assertEqual(r.json()["cookies"], 2)
         self.assertNotIn("SID", r.text)  # o conteúdo nunca volta pela API
         self.assertEqual(self.api.get("/api/saude").json()["cookies"], "enviado")
+        cookies.marcar_expirado(self.cfg, "no longer valid")
+        self.assertTrue(self.api.get("/api/saude").json()["cookies_expirados"])
+        self.assertIsNotNone(self.api.get("/api/cookies").json()["expirado_em"])
         self.assertEqual(self.api.delete("/api/cookies").status_code, 200)
+        self.assertFalse(self.api.get("/api/saude").json()["cookies_expirados"])
         self.assertEqual(self.api.delete("/api/cookies").status_code, 404)
         self.assertIsNone(self.api.get("/api/saude").json()["cookies"])
 

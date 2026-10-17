@@ -138,7 +138,7 @@ async function carregarSaude() {
   saude = await api("/api/saude");
   const partes = [`LLM ${saude.llm ? "ligado" : "desligado"}`,
                   `MeTube ${saude.metube ? "ligado (" + saude.metube_modo + ")" : "desligado"}`,
-                  `cookies ${saude.cookies ? saude.cookies : "não"}`];
+                  `cookies ${saude.cookies ? saude.cookies + (saude.cookies_expirados ? " (expirados)" : "") : "não"}`];
   $("#saude").textContent = partes.join(" · ");
   $("#b-rodar").disabled = !!saude.rodando;
   $("#b-metube").hidden = !saude.metube;
@@ -175,6 +175,11 @@ function mostrarCookies(c, erro) {
     ? `Em uso: ${c.origem === "enviado" ? "arquivo enviado" : "FAREJADOR_COOKIES"}, ${c.bytes} bytes, ` +
       `atualizado ${c.modificado.replace("T", " ").slice(0, 16)} UTC.` + (c.aviso ? ` Atenção: ${c.aviso}.` : "")
     : "Nenhum cookie em uso: o yt-dlp acessa o YouTube anonimamente.");
+  if (!erro && c.expirado_em) {
+    p.className = "erro";
+    p.textContent += ` EXPIRADOS em ${c.expirado_em.replace("T", " ").slice(0, 16)} UTC: o YouTube trocou os cookies ` +
+      "e o yt-dlp está acessando sem login. Exporte de novo por uma janela anônima, feche a janela e envie aqui.";
+  }
   $("#b-sem-cookies").hidden = c.origem !== "enviado";
 }
 
@@ -213,7 +218,7 @@ function mostrarExecucao(e) {
       `${r.requisicoes.rede} requisições na rede` +
       (r.requisicoes.limitadas ? `, ${r.requisicoes.limitadas} com 429` : "") +
       (r.cruzados ? `, ${r.cruzados} fracos entraram por aparecer em outra semente` : "") +
-      ` · cookies: ${r.cookies || "não"}` });
+      ` · cookies: ${r.cookies || "não"}${r.cookies_expirados ? " (expiraram nesta rodada)" : ""}` });
     alvo.append(p);
     if (r.avisos?.length) alvo.append(el("ul", { className: "avisos" }, ...r.avisos.map((a) => el("li", { textContent: a }))));
   }

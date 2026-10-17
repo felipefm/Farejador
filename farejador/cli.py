@@ -85,7 +85,7 @@ def _resumo(r, cfg):
               + ("" if cfg.mostrar_fracos else " — ocultos, use --mostrar-fracos"))
     lim = r["requisicoes"]["limitadas"]
     print(f"Requisições: {r['requisicoes']['rede']} na rede, {r['requisicoes']['cache']} do cache"
-          + (f", {lim} com 429" if lim else "") + f" — cookies: {r['cookies'] or 'não'}")
+          + (f", {lim} com 429" if lim else "") + f" — cookies: {r['cookies'] or 'não'}{' (EXPIRADOS)' if r.get('cookies_expirados') else ''}")
     lm = r["llm"]
     if lm["ligado"]:
         corte = (f", {lm['reprovados']} abaixo da nota {lm['nota_min']:g} saíram da lista" if lm["nota_min"] else "")

@@ -222,6 +222,7 @@ def descobrir(entrada, cfg, coletor, exclusoes=frozenset(), agora=None, log=lamb
     etapas = Etapas(coletor, llm, relogio)
     base = url_base(entrada)
     limitadas0, rede0 = coletor.limitadas, coletor.requisicoes  # o Coletor é compartilhado entre sementes
+    expirados0 = coletor.cookies_expirados
 
     with etapas.medir("canal de referência"):
         log(f"lendo os últimos {cfg.videos_referencia} vídeos de {base}…")
@@ -380,6 +381,10 @@ def descobrir(entrada, cfg, coletor, exclusoes=frozenset(), agora=None, log=lamb
                       f"{coletor.requisicoes - rede0} requisições; o yt-dlp contornou quando pôde, mas os "
                       f"dados dessas podem ter vindo incompletos.{dica}")
 
+    if coletor.cookies_expirados > expirados0:
+        avisos.append("Os cookies do YouTube expiraram (o YouTube os trocou por segurança); o yt-dlp seguiu "
+                      "sem login. Exporte de novo por uma janela anônima, feche a janela e envie pela tela.")
+
     def so(c):
         return "menção" if c["mencoes"] else "destaque" if c["destaque"] else "1 busca"
 
@@ -418,6 +423,7 @@ def descobrir(entrada, cfg, coletor, exclusoes=frozenset(), agora=None, log=lamb
         "requisicoes": {"rede": coletor.requisicoes, "cache": coletor.acertos_cache,
                         "avisos_ytdlp": coletor.avisos_ytdlp, "limitadas": coletor.limitadas - limitadas0},
         "cookies": coletor.cookies_origem,
+        "cookies_expirados": coletor.cookies_expirados > expirados0,
         "candidatos": exportar(fortes),
         "reprovados_llm": exportar(reprovados_llm),
         "candidatos_fracos": exportar(fracos) if cfg.mostrar_fracos else [],

@@ -12,6 +12,8 @@ from . import cookies
 # Trechos de mensagens do yt-dlp e o que significam para nós.
 SINAIS_BLOQUEIO = ("sign in to confirm", "not a bot", "http error 429", "too many requests", "rate-limit", "rate limit")
 SINAIS_LIMITE = ("http error 429", "too many requests")  # contados mesmo quando o yt-dlp contorna
+# avisos que não dizem nada sobre a leitura dos metadados (o Farejador nunca baixa vídeo)
+AVISOS_IGNORADOS = ("ffmpeg not found",)
 SINAIS_TRANSITORIO = ("http error 5", "timed out", "timeout", "connection", "temporarily")
 SINAIS_PERMANENTE = (
     "does not exist", "not available", "unavailable", "does not have a", "http error 404", "private video",
@@ -48,6 +50,8 @@ class _Logger:
         pass
 
     def warning(self, msg):
+        if any(s in msg.lower() for s in AVISOS_IGNORADOS):
+            return
         self.avisos.append(msg)
         self.cache.evento("aviso", "ytdlp", self.alvo, msg)
 
@@ -74,6 +78,7 @@ class Coletor:
         self.avisos_ytdlp = 0     # total de avisos do yt-dlp nesta execução
         self.limitadas = 0        # requisições em que o YouTube respondeu 429 (aviso ou erro)
         self.cookies, self.cookies_origem = cookies.ativo(cfg)  # lido uma vez por execução
+        self.cookies_expirados = 0  # avisos "cookies are no longer valid" nesta execução
 
     # ---------------------------------------------------------------- núcleo
     def _opcoes(self, logger, extras):
@@ -105,6 +110,11 @@ class Coletor:
     def _contar_limite(self, avisos, erro=None):
         if any(s in m.lower() for m in [*avisos, erro or ""] for s in SINAIS_LIMITE):
             self.limitadas += 1
+        if self.cookies is not None:
+            recusa = next((m for m in avisos if cookies.SINAL_EXPIRADO in m.lower()), None)
+            if recusa:  # o yt-dlp segue sem login; a tela precisa saber que o arquivo não vale mais
+                self.cookies_expirados += 1
+                cookies.marcar_expirado(self.cfg, recusa)
 
     def _extrair(self, chave, url, extras=None):
         """Retorna o info dict bruto, ou None em erro permanente/esgotado (fica registrado em eventos)."""

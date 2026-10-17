@@ -7,12 +7,15 @@
 O yt-dlp regrava o arquivo ao fim de cada extração (cookies renovados pelo YouTube), por isso ele
 precisa ser gravável pelo usuário do container. O conteúdo nunca é devolvido pela API.
 """
+import json
 import os
 from datetime import datetime, timezone
 from pathlib import Path
 
 LIMITE_BYTES = 1024 * 1024  # mesmo teto do MeTube
 NOME = "cookies.txt"
+MARCA_EXPIRADO = "cookies.expirado"  # o yt-dlp avisou que o YouTube trocou os cookies
+SINAL_EXPIRADO = "cookies are no longer valid"
 
 
 class CookiesInvalidos(ValueError):
@@ -73,6 +76,7 @@ def salvar(cfg, conteudo):
         f.write(conteudo)
     os.chmod(tmp, 0o600)
     os.replace(tmp, destino)
+    _limpar_expirado(cfg)
     return n
 
 
@@ -82,7 +86,41 @@ def apagar(cfg):
     if not p.is_file():
         return False
     p.unlink()
+    _limpar_expirado(cfg)
     return True
+
+
+def _marca(cfg):
+    return cfg.caminho("dados") / MARCA_EXPIRADO
+
+
+def marcar_expirado(cfg, mensagem):
+    """Registra que o YouTube recusou os cookies. Só sai ao enviar ou remover cookies.
+
+    Não dá para "desmarcar" sozinho: o yt-dlp regrava o arquivo a cada extração (a data muda) e
+    o aviso não aparece em toda requisição, então a ausência dele não prova que voltaram a valer.
+    """
+    p = _marca(cfg)
+    if p.exists():
+        return
+    p.parent.mkdir(parents=True, exist_ok=True)
+    p.write_text(json.dumps({"quando": datetime.now(timezone.utc).isoformat(timespec="seconds"),
+                             "mensagem": mensagem[:300]}), encoding="utf-8")
+
+
+def expirado(cfg):
+    """{"quando", "mensagem"} se os cookies em uso foram recusados, senão None."""
+    try:
+        return json.loads(_marca(cfg).read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return None
+
+
+def _limpar_expirado(cfg):
+    try:
+        _marca(cfg).unlink()
+    except FileNotFoundError:
+        pass
 
 
 def estado(cfg):
@@ -95,4 +133,6 @@ def estado(cfg):
         d["modificado"] = datetime.fromtimestamp(st.st_mtime, timezone.utc).isoformat(timespec="seconds")
     if origem == "enviado" and configurado(cfg) and configurado(cfg).is_file():
         d["aviso"] = "o arquivo enviado tem prioridade sobre FAREJADOR_COOKIES, que não está sendo usado"
+    exp = expirado(cfg) if caminho is not None else None
+    d["expirado_em"] = exp["quando"] if exp else None
     return d
