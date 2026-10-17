@@ -63,6 +63,14 @@ Os títulos dos candidatos (nos resultados de busca e nas abas Vídeos), que vã
 - **Cosmético:** "(tudo contido em 'sertecmanutencao')" aparece duas vezes, porque o nome e o handle compactados coincidem. Remover a duplicata.
 - O `--ignorar-termos` do Café Brasil foi reaproveitado aqui; não teve efeito.
 
+## Fase 2 (2026-10-17): implementada, aguardando o teste prático
+
+- [x] FastAPI + SQLite (`/data`), tela "Farejador", API de sementes/descobertas/candidatos/exportação.
+- [x] Descoberta em thread de fundo (uma por vez); reinício no meio marca a execução como `interrompida`.
+- [x] Docker: `python:3.12-slim` com deno (via `yt-dlp[default,deno]`), código montado com `--reload`, compose e `.env.example`.
+- [x] MeTube opcional: `assinar` (`/subscribe`, padrão) ou `baixar` (`/add` com limite).
+- [ ] Você sobe com `docker compose up -d --build`, roda uma descoberta pela tela e testa aprovar/descartar (e o MeTube, se quiser).
+
 ## Fechamento da fase 1 (2026-10-17): implementado, aguardando o teste prático
 
 Escolha: grupo A + playlists.

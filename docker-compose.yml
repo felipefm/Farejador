@@ -1,0 +1,22 @@
+# Exemplo para o homelab. Na pasta do projeto: docker compose up -d --build
+services:
+  farejador:
+    build: .
+    image: farejador
+    container_name: farejador
+    restart: unless-stopped
+    env_file:
+      - path: .env
+        required: false   # sem .env, valem os padrões
+    user: "${FAREJADOR_UID:-1000}:${FAREJADOR_GID:-1000}"   # dono dos arquivos em ./data
+    ports:
+      - "${FAREJADOR_PORTA:-8765}:8000"
+    volumes:
+      - ./data:/data              # SQLite, cache do yt-dlp, exclude.txt, bruto/
+      - ./farejador:/app/farejador:ro   # código montado: mudou, recarrega (sem rebuild)
+    # --reload vigia só o pacote (polling leve, sem dependências extras).
+    # Atenção: recarregar no meio de uma descoberta a interrompe (fica marcada como 'interrompida').
+    command: >
+      uvicorn --factory farejador.web:criar_app --host 0.0.0.0 --port 8000
+      --reload --reload-dir /app/farejador
+    mem_limit: 512m

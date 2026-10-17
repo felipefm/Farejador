@@ -32,7 +32,7 @@ Para respeitar o YouTube: pausa de 2,5 s entre requisições, cache em SQLite (7
 
 ```bash
 python3 -m venv .venv
-.venv/bin/pip install -r requirements.txt
+.venv/bin/pip install -r requirements.txt   # yt-dlp + yt-dlp-ejs + deno (ficam no .venv, nada global)
 .venv/bin/python farejador.py @canal
 .venv/bin/python farejador.py @canal --ignorar-termos "podcast,lídercast" --verbose --mostrar-fracos
 ```
@@ -42,6 +42,71 @@ python3 -m venv .venv
 - `exclude.txt` (opcional): um @handle, ID `UC...` ou URL por linha. Use `#` para comentários.
 
 Custo típico sem cache: cerca de 1 + 30 + 2 + 6 + 15 + 8 + 25 ≈ 87 requisições, ou seja, uns 4 minutos só de pausa. Rodar de novo com o cache quente custa uma fração disso.
+
+## Servidor web e Docker (fase 2)
+
+A mesma descoberta, com API, tela de aprovação e estado persistente no SQLite (`data/farejador.db`, o mesmo arquivo do cache).
+
+### Docker (homelab)
+
+```bash
+cp .env.example .env              # opcional: sem .env valem os padrões
+docker compose up -d --build      # imagem e container "farejador"
+# abra http://<ip-do-servidor>:8765
+```
+
+- **Código montado por volume:** o compose monta `./farejador` dentro do container e roda o uvicorn com `--reload`. Salvou um arquivo, o servidor recarrega sozinho. **Rebuild só quando mudar `requirements*.txt` ou o `Dockerfile`.**
+  - Recarregar no meio de uma descoberta a interrompe. Ela fica marcada como `interrompida` e basta rodar de novo, porque o que já foi buscado está no cache.
+- **Dados em `./data`:** `farejador.db`, cache do yt-dlp e `bruto/`. A lista de exclusão vira `./data/exclude.txt`. Os arquivos ficam com o dono `FAREJADOR_UID:FAREJADOR_GID` (padrão 1000:1000).
+- **Recursos:**
+  - **Imagem:** ~400 MB, dos quais ~130 MB são do deno. O deno vem pelo extra `yt-dlp[deno]` do pip; o `yt-dlp[default]` traz o `yt-dlp-ejs`. Os dois resolvem o desafio JavaScript do YouTube, sem o qual a leitura de detalhes pode falhar.
+  - **Memória:** `mem_limit: 512m`. Ocioso, o servidor fica na casa das dezenas de MB.
+  - **Processos:** a descoberta roda numa **thread em segundo plano** do próprio processo, uma por vez, com o progresso gravado no SQLite. Não há fila nem processo extra.
+- **Sem autenticação.** Use só na rede local.
+
+### Sem Docker
+
+```bash
+.venv/bin/pip install -r requirements.txt -r requirements-web.txt
+.venv/bin/uvicorn --factory farejador.web:criar_app --host 0.0.0.0 --port 8765 --reload --reload-dir farejador
+```
+
+### Tela
+
+Tem três blocos:
+
+- **Sementes:** adicionar ou remover canais de referência.
+- **Descoberta:** um botão para rodar todas as sementes, com o progresso ao vivo e o resumo e os avisos de cada semente.
+- **Candidatos:** abas Novos, Aprovados e Descartados. Cada candidato mostra o score, a nota e a justificativa do LLM, o motivo e as sementes em que apareceu, com os botões Aprovar e Descartar. Há um link para exportar os aprovados.
+
+### Estados dos candidatos
+
+- `novo` pode ir para `aprovado` ou `descartado`; `aprovado` pode ir para `descartado`.
+- **Descartado é definitivo:** nunca volta à lista e nunca é sobrescrito por uma descoberta nova.
+- Aprovados e descartados entram na exclusão das próximas descobertas e não gastam busca nem avaliação do LLM de novo.
+- Um canal que aparece em várias sementes acumula a lista `sementes`. Isso ainda não dá bônus no score (ver múltiplas sementes em `PROXIMOS_PASSOS.md`).
+
+### API
+
+| Método e rota | O que faz |
+|---|---|
+| `GET /api/saude` | estado: descoberta rodando, LLM e MeTube ligados |
+| `GET/POST /api/sementes`, `DELETE /api/sementes/{id}` | sementes (`{"canal": "@x"}`) |
+| `POST /api/descobertas` | roda todas as sementes, ou `{"sementes": [...]}`; 202 com `id`, 409 se já houver uma rodando |
+| `GET /api/descobertas`, `GET /api/descobertas/{id}` | histórico e progresso |
+| `GET /api/candidatos?estado=novo\|aprovado\|descartado` | lista |
+| `POST /api/candidatos/{channel_id}/aprovar` ou `/descartar` | decide (409 em transição proibida) |
+| `POST /api/candidatos/{channel_id}/metube` | reenvia um aprovado ao MeTube |
+| `GET /api/exportar` | URLs dos aprovados, uma por linha (texto) |
+| `GET /api/docs` | documentação interativa |
+
+### MeTube (opcional, desligado por padrão)
+
+Com `FAREJADOR_METUBE_URL` preenchida, aprovar um canal o envia ao MeTube. Se falhar, a tela mostra o erro e um botão para reenviar. O formato foi lido do código do MeTube (`app/main.py` e `app/format_catalog.py`):
+
+- **`FAREJADOR_METUBE_MODO=assinar` (padrão):** `POST /subscribe` com `{"url", "download_type": "video", "format": "any", "quality"}`. O MeTube passa a baixar **só os vídeos novos** do canal. `FAREJADOR_METUBE_INTERVALO` (minutos) define o intervalo de checagem; 0 usa o padrão do MeTube.
+- **`baixar`:** `POST /add` com os mesmos campos mais `playlist_item_limit = FAREJADOR_METUBE_LIMITE` (padrão 5). O limite é sempre enviado, porque mandar um canal sem limite faria o MeTube **baixar o canal inteiro** (o padrão dele é 0, que significa tudo).
+- **Sucesso e falha:** é sucesso quando a resposta é HTTP 2xx e não traz `{"status": "error"}`. O MeTube pode responder 200 com erro no corpo. Envios e erros vão para a tabela `eventos` (`metube` e `metube_erro`).
 
 ## LLM local (opcional, desligado por padrão)
 
@@ -129,7 +194,7 @@ sqlite3 data/farejador.db "SELECT quando, nivel, tipo, alvo, mensagem FROM event
 .venv/bin/python -m unittest discover -s tests -t .
 ```
 
-Os testes não acessam a rede: o yt-dlp é simulado.
+Os testes não acessam a rede: o yt-dlp, o LLM e o MeTube são simulados. Para os testes da API: `.venv/bin/pip install -r requirements-web.txt -r requirements-dev.txt`.
 
 ## Suposições e limitações
 
@@ -157,4 +222,4 @@ Os testes não acessam a rede: o yt-dlp é simulado.
   - Consultas: `{"consultas": [string]}`. Nota: `{"nota": número de 0 a 10, "justificativa": string}`. Nota em string (`"7"`) é rejeitada.
 - **Sem mensagem `system`.** Tudo vai numa única mensagem `user`, porque alguns templates (Gemma) recusam o papel `system`. A temperatura é fixa em 0,2.
 - **A nota do LLM é opinião de um modelo pequeno.** Ela só reordena: não remove ninguém da lista e não substitui os sinais determinísticos.
-- **Docker:** fica para a fase 2.
+- **Servidor sem autenticação e uma descoberta por vez.** Pensado para uma pessoa na rede local.

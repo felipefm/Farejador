@@ -1,1 +1,3 @@
-yt-dlp>=2026.8.19
+# núcleo (CLI e servidor). [default] traz o yt-dlp-ejs (resolve o desafio JS do YouTube),
+# [deno] traz o runtime JavaScript que o yt-dlp exige para a extração completa de vídeos.
+yt-dlp[default,deno]>=2026.8.19
