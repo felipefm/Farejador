@@ -37,6 +37,7 @@ class Config:
     llm_max_buscas: int = 8           # consultas do LLM somadas às determinísticas
     llm_avaliar: int = 15             # candidatos da lista principal reavaliados pelo LLM
     llm_peso: float = 0.5             # peso da nota do LLM na ordem final (0 = ignora, 1 = só LLM)
+    llm_nota_min: float = 0           # nota abaixo disso tira o candidato da lista principal (0 = sem corte)
     sem_llm: bool = False             # força o modo determinístico mesmo com LLM configurado
     dados: str = "data"               # pasta do SQLite e cache do yt-dlp
     exclude: str = "exclude.txt"

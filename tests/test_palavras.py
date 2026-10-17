@@ -86,3 +86,7 @@ class TestPalavras(unittest.TestCase):
         videos = [{"titulo": "Feliz dia do Professor"}, {"titulo": "Multímetro digital barato"}]
         t = titulos_representativos(videos, [{"chave": "multimetro"}], [], n=3)
         self.assertEqual(t, ["Multímetro digital barato"])
+
+    def test_limpar_titulo_sem_pontuacao_solta(self):
+        self.assertEqual(limpar_titulo("🔧 FILTRO DE LINHA… OU UM FILTRO DE LINHA “CAPADO”?"),
+                         "FILTRO DE LINHA OU UM FILTRO DE LINHA CAPADO")

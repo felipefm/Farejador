@@ -58,17 +58,28 @@ def ordenar(candidatos):
     return sorted(candidatos, key=lambda c: (-c["score"], -sinais(c), (c.get("nome") or "").lower()))
 
 
+def _percentil_90(valores):
+    v = sorted(valores)
+    return v[max(0, -(-9 * len(v) // 10) - 1)] if v else 0
+
+
 def combinar(candidatos, peso_llm):
     """Ordem final: (1 - peso) * score normalizado (0–10) + peso * nota do LLM (0–10).
 
-    O score determinístico é normalizado pelo maior da lista. Candidato sem nota (LLM desligado,
-    falhou ou fora do limite) usa o próprio score normalizado no lugar da nota: não ganha nem perde
-    por não ter sido avaliado. Ordena a lista no lugar.
+    O score determinístico é normalizado pelo percentil 90 da lista (teto 10): um único canal com
+    score muito alto (ex.: Manual do Mundo em 9 buscas) não comprime todos os outros perto de zero.
+    Candidato sem nota (fora do limite de avaliados ou falha do LLM) recebe a média das notas dadas
+    nesta execução: o desconhecido vale o típico, nem o melhor nem o pior. Sem nenhuma nota, usa o
+    próprio score normalizado. Ordena a lista no lugar.
     """
-    maior = max((c["score"] for c in candidatos), default=0) or 1
+    base = _percentil_90([c["score"] for c in candidatos]) or 1
+    notas = [c["nota_llm"] for c in candidatos if c.get("nota_llm") is not None]
+    media = sum(notas) / len(notas) if notas else None
     for c in candidatos:
-        det = 10 * c["score"] / maior
+        det = min(10.0, 10 * c["score"] / base)
         nota = c.get("nota_llm")
-        c["score_final"] = round((1 - peso_llm) * det + peso_llm * (det if nota is None else nota), 2)
+        if nota is None:
+            nota = media if media is not None else det
+        c["score_final"] = round((1 - peso_llm) * det + peso_llm * nota, 2)
     candidatos.sort(key=lambda c: (-c["score_final"], -c["score"], (c.get("nome") or "").lower()))
     return candidatos

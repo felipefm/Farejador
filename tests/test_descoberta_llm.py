@@ -40,8 +40,22 @@ class TestCombinar(unittest.TestCase):
               {"nome": "C", "score": 80}]
         self.assertEqual([c["nome"] for c in ranking.combinar([dict(c) for c in cs], 0)], ["A", "C", "B"])
         r = ranking.combinar([dict(c) for c in cs], 0.5)
-        self.assertEqual([(c["nome"], c["score_final"]) for c in r], [("C", 8.0), ("B", 7.5), ("A", 5.5)])
+        # C não foi avaliado: recebe a média das notas dadas (5,5) no lugar da nota
+        self.assertEqual([(c["nome"], c["score_final"]) for c in r], [("B", 7.5), ("C", 6.75), ("A", 5.5)])
         self.assertEqual([c["nome"] for c in ranking.combinar([dict(c) for c in cs], 1)], ["B", "C", "A"])
+
+
+    def test_valor_discrepante_nao_comprime_os_outros(self):
+        cs = [{"nome": "Gigante", "score": 90}] + [{"nome": f"n{i}", "score": 20 + 10 * (i % 3)} for i in range(10)]
+        r = ranking.combinar(cs, 0)
+        self.assertEqual(r[0]["nome"], "Gigante")
+        self.assertEqual(r[0]["score_final"], 10.0)
+        self.assertEqual(next(c for c in r if c["score"] == 40)["score_final"], 10.0)  # p90 = 40
+        self.assertEqual(next(c for c in r if c["score"] == 20)["score_final"], 5.0)
+
+    def test_sem_nota_nenhuma_usa_o_score(self):
+        r = ranking.combinar([{"nome": "A", "score": 30}, {"nome": "B", "score": 15}], 0.5)
+        self.assertEqual([c["score_final"] for c in r], [10.0, 5.0])
 
 
 class TestPipelineComLLM(unittest.TestCase):
@@ -105,3 +119,20 @@ class TestPromptComPlaylists(unittest.TestCase):
         prompts = [p["corpo"]["messages"][0]["content"] for p in srv.pedidos]
         self.assertIn("Videocast Iscas Intelectuais", prompts[0])           # consultas
         self.assertTrue(any("Playlists: Videocast Iscas Intelectuais" in p for p in prompts[1:]))  # perfil
+
+
+class TestCortePorNota(unittest.TestCase):
+    def test_nota_minima_tira_da_lista_principal(self):
+        r, _, _ = rodar(llm_nota_min=5)
+        self.assertEqual([c["nome"] for c in r["candidatos"]], ["Convidado"])
+        self.assertEqual([c["nome"] for c in r["reprovados_llm"]], ["Bom"])
+        self.assertEqual(r["llm"]["reprovados"], 1)
+
+    def test_todos_reprovados_avisa(self):
+        r, _, _ = rodar(llm_nota_min=10)
+        self.assertEqual(r["candidatos"], [])
+        self.assertTrue(any("nenhum canal parecido" in a for a in r["avisos"]))
+
+    def test_sem_corte_por_padrao_e_sem_llm(self):
+        self.assertEqual(rodar()[0]["reprovados_llm"], [])
+        self.assertEqual(rodar(sem_llm=True, llm_nota_min=9)[0]["reprovados_llm"], [])  # sem nota, sem corte

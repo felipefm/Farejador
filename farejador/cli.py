@@ -84,8 +84,9 @@ def _resumo(r, cfg):
     print(f"Requisições: {r['requisicoes']['rede']} na rede, {r['requisicoes']['cache']} do cache")
     lm = r["llm"]
     if lm["ligado"]:
+        corte = (f", {lm['reprovados']} abaixo da nota {lm['nota_min']:g} saíram da lista" if lm["nota_min"] else "")
         print(f"LLM: {lm['modelo']} — {lm['consultas']} consultas geradas, {lm['avaliados']} candidatos avaliados, "
-              f"peso {lm['peso']:g} na ordem final")
+              f"peso {lm['peso']:g} na ordem final{corte}")
     else:
         print("LLM: desligado (modo determinístico)")
     if cfg.verbose:
@@ -136,6 +137,9 @@ def main(argv=None):
     print()
     print(tabela(r["candidatos"], cfg.top) if r["candidatos"] else
           f"Nenhum candidato com {cfg.min_sinais}+ sinais independentes.")
+    if r["reprovados_llm"] and (cfg.verbose or cfg.mostrar_fracos):
+        print(f"\nReprovados pelo LLM (nota < {r['llm']['nota_min']:g}):")
+        print(tabela(r["reprovados_llm"], cfg.top))
     if cfg.mostrar_fracos and r["candidatos_fracos"]:
         print(f"\nFracos (menos de {cfg.min_sinais} sinais):")
         print(tabela(r["candidatos_fracos"], cfg.top))

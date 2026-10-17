@@ -188,7 +188,7 @@ def limpar_titulo(titulo, ignorar=SEM_IGNORADOS):
             chave = sem_acento(nucleo[0].strip("'"))
             if chave.isdigit() or chave in ignorar or chave in {"ep", "episodio", "cap"}:
                 continue
-            palavras.append(w.strip("\"'“”()[]"))
+            palavras.append(w.strip("\"'“”‘’()[]?!.,;…"))
         conteudo = [c for c, _ in tokens(" ".join(palavras), ignorar)]
         if palavras and len(conteudo) >= 2:
             trechos.append(" ".join(p for p in palavras if p))

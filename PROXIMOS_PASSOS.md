@@ -73,9 +73,11 @@ Escolha: grupo A + playlists.
 - [x] Frase que só estende outra pelo menos tão frequente é descartada.
 - [x] Stopwords novas: youtube, mesa, domingo, palestra.
 - [x] "(tudo contido em …)" sem duplicata.
-- [ ] Você roda de novo @LucianoPiresCafeBrasil e @SERTECMANUTENCAO e decide se aprova a fase 1.
+- [x] Teste prático (2026-10-17) com @LucianoPiresCafeBrasil, @SERTECMANUTENCAO e @DisneyDesenhos: Sertec e Disney bons; Café Brasil ruim (nomes de série e patrocinador nas playlists; canal eclético). O LLM deu de 1 a 5 a todos os candidatos do Café Brasil.
+- [x] Corte opcional por nota (`FAREJADOR_LLM_NOTA_MIN`) e normalização pelo percentil 90 + média das notas para quem não foi avaliado.
+- [ ] Você confirma a aprovação da fase 1.
 
-Ficam para depois da fase 1, se você quiser: penalidade de tamanho, ajuste do prompt do LLM (nota máxima para canal generalista), menção valendo 2 sinais, `FAREJADOR_LLM_AVALIAR` 20 e múltiplas sementes (G). O deno vai para a fase 2.
+Ficam para depois da fase 1, se você quiser: detectar nomes de série e patrocinador (Café Brasil), bloco de tags presente em 100% dos vídeos (Disney), penalidade de tamanho, ajuste do prompt do LLM (nota máxima para canal generalista), menção valendo 2 sinais, `FAREJADOR_LLM_AVALIAR` 20 e múltiplas sementes (G). O deno vai para a fase 2.
 
 ## Propostas, por prioridade (aguardando decisão)
 

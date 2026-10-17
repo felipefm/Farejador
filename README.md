@@ -49,8 +49,9 @@ Com um servidor compatível com a API da OpenAI (testado contra o formato do LM 
 
 1. **Pede de 8 a 10 consultas sobre o tema** a partir de nome, títulos, tags e trechos de descrição do canal. O prompt proíbe o nome do canal e dos programas. Consultas com termo proibido, repetidas, com menos de 2 ou mais de 8 palavras, ou iguais a uma determinística são descartadas. As válidas **somam** às buscas determinísticas, até `FAREJADOR_LLM_MAX_BUSCAS` (padrão 8), e aparecem com origem `[llm]`.
 2. **Reavalia os primeiros candidatos da lista principal** (`FAREJADOR_LLM_AVALIAR`, padrão 15). O modelo recebe o perfil da referência e até 10 títulos recentes do candidato e devolve uma nota de 0 a 10 de afinidade temática, com uma justificativa de uma frase. Quando a aba Vídeos do candidato ainda não foi lida, ela é lida agora (1 requisição ao YouTube, com cache).
-   - **Ordem final:** `(1 − peso) × score normalizado (0–10) + peso × nota`, com peso `FAREJADOR_LLM_PESO` (padrão 0,5). O score normalizado é o score dividido pelo maior score da lista, × 10.
-   - **Sem nota** (falha ou fora do limite): o candidato usa o próprio score normalizado no lugar da nota.
+   - **Ordem final:** `(1 − peso) × score normalizado (0–10) + peso × nota`, com peso `FAREJADOR_LLM_PESO` (padrão 0,5). O score normalizado é o score dividido pelo percentil 90 dos scores da lista, × 10, com teto 10. Assim, um único canal com score muito alto não comprime os outros perto de zero.
+   - **Sem nota** (falha ou fora do limite): o candidato recebe a média das notas dadas na execução. Se nenhum foi avaliado, usa o próprio score normalizado.
+   - **Corte opcional:** `FAREJADOR_LLM_NOTA_MIN` (padrão 0, desligado) tira da lista principal quem teve nota abaixo do valor. Os reprovados ficam no JSON (`reprovados_llm`) e aparecem com `--verbose` ou `--mostrar-fracos`. Quem não foi avaliado nunca é cortado.
 
 ```bash
 export FAREJADOR_LLM_URL=http://192.168.0.6:1234      # /v1 é acrescentado se faltar
@@ -109,6 +110,7 @@ Toda opção da CLI também pode vir de uma variável de ambiente `FAREJADOR_<NO
 | `FAREJADOR_LLM_MAX_BUSCAS` | 8 | consultas do LLM somadas às determinísticas |
 | `FAREJADOR_LLM_AVALIAR` | 15 | candidatos reavaliados |
 | `FAREJADOR_LLM_PESO` | 0.5 | peso da nota na ordem final (0 a 1) |
+| `FAREJADOR_LLM_NOTA_MIN` | 0 | nota mínima para ficar na lista principal (0 = sem corte) |
 | `FAREJADOR_SEM_LLM` / `--sem-llm` | false | ignora o LLM mesmo configurado |
 | `FAREJADOR_DADOS` | data | pasta do SQLite, do cache do yt-dlp e de `bruto/` |
 | `FAREJADOR_EXCLUDE` / `FAREJADOR_SAIDA` | exclude.txt / resultado.json | arquivos |
@@ -137,7 +139,11 @@ Os testes não acessam a rede: o yt-dlp é simulado.
   - **Playlists:** pedidas no idioma de `FAREJADOR_IDIOMA` (padrão `pt`). Num canal em português, isso devolve o original; num canal em outro idioma, ajuste a variável. Com idioma diferente de inglês as datas aproximadas deixam de ser lidas, mas as playlists não usam datas.
   - **Candidatos:** títulos de resultados de busca e da aba Vídeos dos candidatos, que vão para o LLM, continuam traduzidos. Corrigir custaria 1 extração completa por vídeo.
   - O idioma não é aplicado no resto, porque o yt-dlp só sabe ler datas relativas em inglês ("3 weeks ago"), e a checagem de atividade depende delas.
-- **Canais generalistas com amostra recente enviesada.** Quando os vídeos recentes e as playlists não representam o assunto do canal, as palavras-chave levam a buscas genéricas e os grandes veículos dominam. Foi o que aconteceu com o @LucianoPiresCafeBrasil antes da leitura das playlists. Funciona melhor com canais de nicho (ex.: eletrônica).
+- **Funciona bem para canais de nicho, mal para canais ecléticos.** Contar palavras por vídeo exige que o assunto se repita nos títulos. Em canais de nicho (testados @SERTECMANUTENCAO, de eletrônica, e @DisneyDesenhos) a lista principal saiu no nicho. Em canais ecléticos, cada episódio trata de um assunto, e o que se repete é o nome da série ou do patrocinador.
+  - No @LucianoPiresCafeBrasil, "Iscas Intelectuais" e "Videocast Nakata" (Nakata é um patrocinador de autopeças) viraram as principais palavras-chave, e as buscas trouxeram lojas de autopeças.
+  - O que ajuda: `--ignorar-termos` com os nomes de série e patrocinador e `FAREJADOR_LLM_NOTA_MIN`. Com esse corte ligado, a saída honesta pode ser "nenhum canal parecido encontrado".
+  - Múltiplas sementes (`@a @b @c`) seriam a correção de fundo; ainda não estão implementadas.
+- **Bloco de tags repetido em todos os vídeos** ("alta qualidade excelente imagem dublado" no @DisneyDesenhos) vira palavra-chave com contagem máxima. Costuma não ocupar vaga de busca porque as frases vêm antes, mas aparece na lista de palavras-chave.
 - **Palavras-chave só de títulos e tags.** As descrições dos vídeos ficam de fora das palavras-chave: costumam repetir rodapé (patrocínio, redes sociais), que dominaria a contagem. Elas são usadas só para as menções.
 - **Ignorar pelo @handle é agressivo.** Qualquer palavra de 4 ou mais letras contida no handle some, mesmo quando é assunto legítimo (ex.: "brasil" num canal sobre o Brasil). Os nomes de quadros e programas que não estão no handle precisam de `--ignorar-termos`.
 - **Menções só por link.** Um "@fulano" solto no texto é ambíguo (Instagram, X…) e não conta. "Canal do próprio criador" é heurística: o nome/handle contém o nome ou o handle da referência, ou o link aparece em 80% ou mais das descrições (com 5 vídeos ou mais).

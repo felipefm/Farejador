@@ -357,7 +357,15 @@ def descobrir(entrada, cfg, coletor, exclusoes=frozenset(), agora=None, log=lamb
             avaliados = _avaliar_llm(llm, coletor, fortes, _perfil(ref, unigramas, frases, videos, titulos_pl), cfg, agora,
                                      avisos, log)
         fortes = filtrar_inativos(fortes)
+    reprovados_llm = []
+    if llm and cfg.llm_nota_min > 0:
+        reprovados_llm = [c for c in fortes if c.get("nota_llm") is not None and c["nota_llm"] < cfg.llm_nota_min]
+        fortes = [c for c in fortes if c not in reprovados_llm]
+        if reprovados_llm and not fortes:
+            avisos.append(f"Todos os candidatos avaliados tiveram nota < {cfg.llm_nota_min:g} no LLM: "
+                          "nenhum canal parecido encontrado nesta execução.")
     ranking.combinar(fortes, cfg.llm_peso if llm else 0)
+    ranking.combinar(reprovados_llm, 0)
     ranking.combinar(fracos, 0)
     removidos["inativo"] = len(inativos)
     if llm:
@@ -392,6 +400,7 @@ def descobrir(entrada, cfg, coletor, exclusoes=frozenset(), agora=None, log=lamb
         "fracos": {"total": len(fracos), "por_sinal": {s: sum(so(c) == s for c in fracos)
                                                        for s in ("1 busca", "menção", "destaque")}},
         "llm": {"ligado": llm is not None, "modelo": llm.modelo if llm else None,
+                "nota_min": cfg.llm_nota_min if llm else 0, "reprovados": len(reprovados_llm),
                 "consultas": sum(o == "llm" for _, o in consultas), "avaliados": avaliados,
                 "peso": cfg.llm_peso if llm else 0},
         "avisos": avisos,
@@ -399,5 +408,6 @@ def descobrir(entrada, cfg, coletor, exclusoes=frozenset(), agora=None, log=lamb
         "requisicoes": {"rede": coletor.requisicoes, "cache": coletor.acertos_cache,
                         "avisos_ytdlp": coletor.avisos_ytdlp},
         "candidatos": exportar(fortes),
+        "reprovados_llm": exportar(reprovados_llm),
         "candidatos_fracos": exportar(fracos) if cfg.mostrar_fracos else [],
     }
