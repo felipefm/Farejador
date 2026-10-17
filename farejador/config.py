@@ -42,9 +42,12 @@ class Config:
     metube_url: str = ""              # ex.: http://192.168.0.10:8081 (vazio = adaptador desligado)
     metube_modo: str = "assinar"      # assinar (só vídeos novos, /subscribe) | baixar (/add, até metube_limite)
     metube_qualidade: str = "best"    # best, 1080, 720…
+    metube_formato: str = "any"       # any, mp4…
+    metube_codec: str = ""            # h264, auto… (vazio = padrão do MeTube)
+    metube_ao_aprovar: bool = False   # envia já ao aprovar; desligado = só pelo botão depois da rodada
     metube_limite: int = 5            # modo baixar: quantos vídeos do canal
     metube_intervalo: int = 0         # modo assinar: minutos entre checagens (0 = padrão do MeTube)
-    metube_timeout: float = 15.0
+    metube_timeout: float = 60.0      # assinar faz o MeTube ler o canal na hora: pode levar segundos
     cookies: str = ""                 # cookies.txt (Netscape) para o yt-dlp; o enviado pela tela tem prioridade
     dados: str = "data"               # pasta do SQLite e cache do yt-dlp
     exclude: str = "exclude.txt"

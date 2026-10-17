@@ -5,6 +5,8 @@ Formato lido do código do MeTube (app/main.py e app/format_catalog.py, out/2026
 - POST {base}/subscribe : os mesmos campos + check_interval_minutes (opcional).
 - download_type "video" com format "any" e quality "best" são os padrões do próprio MeTube.
 - Erro de validação vem como HTTP 400; erro de fila pode vir como HTTP 200 com {"status": "error", "msg": ...}.
+- /subscribe lê o canal na hora (marca os vídeos atuais como vistos) e recusa URL já assinada com
+  "This URL is already subscribed" (comparação exata da URL), que aqui conta como sucesso.
 
 Mandar um canal para /add baixa o canal inteiro (o limite padrão do MeTube é 0 = tudo); por isso
 o modo padrão é "assinar" (só vídeos novos) e o modo "baixar" sempre envia playlist_item_limit.
@@ -25,7 +27,10 @@ def montar_pedido(cfg, url_canal):
     """(endpoint, corpo) do pedido ao MeTube para um canal aprovado."""
     if cfg.metube_modo not in MODOS:
         raise ValueError(f"FAREJADOR_METUBE_MODO deve ser {' ou '.join(MODOS)}, não {cfg.metube_modo!r}")
-    corpo = {"url": url_canal, "download_type": "video", "format": "any", "quality": cfg.metube_qualidade}
+    corpo = {"url": url_canal, "download_type": "video", "format": cfg.metube_formato or "any",
+             "quality": cfg.metube_qualidade}
+    if cfg.metube_codec.strip():
+        corpo["codec"] = cfg.metube_codec.strip()
     if cfg.metube_modo == "baixar":
         corpo["playlist_item_limit"] = max(1, cfg.metube_limite)
         return "/add", corpo
@@ -65,5 +70,8 @@ def _interpretar(texto):
     except ValueError:
         return True, texto[:200] or "ok"
     if isinstance(dados, dict) and str(dados.get("status", "")).lower() == "error":
-        return False, str(dados.get("msg") or dados)[:300]
+        msg = str(dados.get("msg") or dados)
+        if "already subscribed" in msg.lower():
+            return True, "já estava inscrito no MeTube"
+        return False, msg[:300]
     return True, "ok"

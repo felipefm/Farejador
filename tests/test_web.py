@@ -142,7 +142,7 @@ class TestAPI(Base):
         def falso(cfg, url, cache=None):
             enviados.append(url)
             return (len(enviados) > 1, "ok" if len(enviados) > 1 else "fora do ar")
-        c = self.cliente({"@a": resultado("x")}, enviar_metube=falso, metube_url="http://m:8081")
+        c = self.cliente({"@a": resultado("x")}, enviar_metube=falso, metube_url="http://m:8081", metube_ao_aprovar=True)
         c.post("/api/descobertas", json={"sementes": ["@a"]})
         r = c.post("/api/candidatos/x/aprovar").json()
         self.assertEqual(r["metube"], {"ok": False, "msg": "fora do ar"})
@@ -150,6 +150,16 @@ class TestAPI(Base):
         self.assertEqual(c.post("/api/candidatos/x/metube").json(), {"ok": True, "msg": "ok"})
         self.assertEqual(self.banco.candidato("x")["metube_estado"], "enviado")
         self.assertEqual(enviados, ["https://www.youtube.com/@x"] * 2)
+
+    def test_metube_sem_envio_ao_aprovar(self):
+        enviados = []
+        c = self.cliente({"@a": resultado("x")}, enviar_metube=lambda cfg, url, cache=None: (enviados.append(url), (True, "ok"))[1],
+                         metube_url="http://m:8081")
+        c.post("/api/descobertas", json={"sementes": ["@a"]})
+        self.assertEqual(c.post("/api/candidatos/x/aprovar").json()["metube"], None)
+        self.assertEqual(enviados, [])  # só pelo botão
+        self.assertTrue(c.post("/api/candidatos/x/metube").json()["ok"])
+        self.assertEqual(enviados, ["https://www.youtube.com/@x"])
 
     def test_metube_desligado_nao_reenvia(self):
         c = self.cliente({"@a": resultado("x")})

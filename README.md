@@ -108,9 +108,9 @@ Tem três blocos:
 
 ### MeTube (opcional, desligado por padrão)
 
-Com `FAREJADOR_METUBE_URL` preenchida, aprovar um canal o envia ao MeTube. Se falhar, a tela mostra o erro e um botão para reenviar. O formato foi lido do código do MeTube (`app/main.py` e `app/format_catalog.py`):
+Com `FAREJADOR_METUBE_URL` preenchida, a tela ganha o botão **"Inscrever aprovados no MeTube"**. Ele envia, um por vez, os aprovados da rodada atual que ainda não foram enviados e mostra o progresso. Os que falharem ficam marcados e têm um botão para reenviar. Com `FAREJADOR_METUBE_AO_APROVAR=true`, o canal já é enviado no momento em que você clica em "Aprovar". O formato foi lido do código do MeTube (`app/main.py` e `app/format_catalog.py`):
 
-- **`FAREJADOR_METUBE_MODO=assinar` (padrão):** `POST /subscribe` com `{"url", "download_type": "video", "format": "any", "quality"}`. O MeTube passa a baixar **só os vídeos novos** do canal. `FAREJADOR_METUBE_INTERVALO` (minutos) define o intervalo de checagem; 0 usa o padrão do MeTube.
+- **`FAREJADOR_METUBE_MODO=assinar` (padrão):** `POST /subscribe` com `{"url", "download_type": "video", "format", "quality", "codec"}`, valores definidos por `FAREJADOR_METUBE_FORMATO`, `_QUALIDADE` e `_CODEC`. Na hora da inscrição, o MeTube lê o canal e marca os vídeos atuais como vistos, por isso cada envio pode levar alguns segundos (`FAREJADOR_METUBE_TIMEOUT`, padrão 60). Depois disso, ele baixa **só os vídeos novos**. Se a URL já estiver inscrita, o envio conta como sucesso. O MeTube compara a URL exata, então `@canal` e `/channel/UC…` contam como inscrições diferentes. `FAREJADOR_METUBE_INTERVALO` (minutos) define o intervalo de checagem; 0 usa o padrão do MeTube.
 - **`baixar`:** `POST /add` com os mesmos campos mais `playlist_item_limit = FAREJADOR_METUBE_LIMITE` (padrão 5). O limite é sempre enviado, porque mandar um canal sem limite faria o MeTube **baixar o canal inteiro** (o padrão dele é 0, que significa tudo).
 - **Sucesso e falha:** é sucesso quando a resposta é HTTP 2xx e não traz `{"status": "error"}`. O MeTube pode responder 200 com erro no corpo. Envios e erros vão para a tabela `eventos` (`metube` e `metube_erro`).
 

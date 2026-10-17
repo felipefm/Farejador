@@ -93,6 +93,7 @@
       <h2 id="t-cand">Candidatos</h2>
       <div class="linha">
         <a href="/api/exportar" class="suave">Exportar aprovados (URLs)</a>
+        <button id="b-metube" type="button" hidden>Inscrever aprovados no MeTube</button>
         <button id="b-arquivar" type="button" title="Tira aprovados e descartados das abas; eles continuam sem voltar nas descobertas">Arquivar decididos</button>
       </div>
     </div>
@@ -102,6 +103,7 @@
       <button role="tab" data-estado="descartado" aria-selected="false">Descartados</button>
       <button role="tab" data-estado="arquivado" aria-selected="false">Arquivados</button>
     </div>
+    <p id="msg-metube" class="suave" aria-live="polite" hidden></p>
     <div id="filtro-arquivo" class="linha" style="margin-bottom:10px" hidden>
       <input id="i-filtro" type="text" placeholder="Buscar no arquivo (nome, @handle, semente)" aria-label="Buscar no arquivo">
       <span id="conta-arquivo" class="suave"></span>
@@ -139,6 +141,7 @@ async function carregarSaude() {
                   `cookies ${saude.cookies ? saude.cookies : "não"}`];
   $("#saude").textContent = partes.join(" · ");
   $("#b-rodar").disabled = !!saude.rodando;
+  $("#b-metube").hidden = !saude.metube;
   return saude;
 }
 
@@ -305,6 +308,29 @@ function desenharCandidatos() {
 }
 
 $("#i-filtro").addEventListener("input", desenharCandidatos);
+
+$("#b-metube").addEventListener("click", async () => {
+  const pendentes = (await api("/api/candidatos?estado=aprovado")).filter((c) => c.metube_estado !== "enviado");
+  const msg = $("#msg-metube");
+  msg.hidden = false; msg.className = "suave";
+  if (!pendentes.length) { msg.textContent = "Todos os aprovados já foram enviados ao MeTube."; return; }
+  const acao = saude.metube_modo === "baixar" ? "Enviar para download" : "Inscrever";
+  if (!confirm(`${acao} ${pendentes.length} canais aprovados no MeTube (modo ${saude.metube_modo})?`)) return;
+  $("#b-metube").disabled = true;
+  const falhas = [];
+  for (const [i, c] of pendentes.entries()) {  // um por vez: cada inscrição faz o MeTube ler o canal
+    msg.textContent = `MeTube: ${i + 1}/${pendentes.length} — ${c.nome || c.channel_id}…`;
+    try {
+      const r = await api(`/api/candidatos/${encodeURIComponent(c.channel_id)}/metube`, { method: "POST" });
+      if (!r.ok) falhas.push(`${c.nome}: ${r.msg}`);
+    } catch (e) { falhas.push(`${c.nome}: ${e.message}`); }
+  }
+  $("#b-metube").disabled = false;
+  msg.className = falhas.length ? "erro" : "suave";
+  msg.textContent = `MeTube: ${pendentes.length - falhas.length}/${pendentes.length} enviados.` +
+    (falhas.length ? ` Falharam: ${falhas.join(" · ")}` : "");
+  carregarCandidatos();
+});
 
 $("#b-arquivar").addEventListener("click", async () => {
   if (!confirm("Arquivar todos os aprovados e descartados? Eles saem das abas e da exportação, " +

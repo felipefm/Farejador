@@ -10,10 +10,16 @@ services:
       # LLM local (LM Studio). Vazio = desligado.
       FAREJADOR_LLM_URL: http://192.168.0.6:1234
       FAREJADOR_LLM_MODEL: google/gemma-4-e4b
-      # MeTube. Vazio = desligado. Ligado, "Aprovar" já envia o canal.
+      # MeTube. Vazio = desligado. Ligado, a tela ganha o botão "Inscrever aprovados no MeTube".
       # assinar = só vídeos novos | baixar = os últimos FAREJADOR_METUBE_LIMITE vídeos
-      FAREJADOR_METUBE_URL: ""            # ex.: http://192.168.0.11:8081
+      FAREJADOR_METUBE_URL: http://192.168.0.11:8081   # pelo IP do host: o MeTube está em outra rede Docker
       FAREJADOR_METUBE_MODO: assinar
+      # mesmo padrão da maioria das suas assinaturas atuais no MeTube
+      FAREJADOR_METUBE_FORMATO: mp4
+      FAREJADOR_METUBE_QUALIDADE: "1080"
+      FAREJADOR_METUBE_CODEC: h264
+      FAREJADOR_METUBE_INTERVALO: "1440"   # minutos entre checagens (1 vez por dia)
+      FAREJADOR_METUBE_AO_APROVAR: "false" # true = já envia ao clicar em Aprovar
       # Cookies do YouTube: envie pela tela (fica em ./data/cookies.txt, tem prioridade) ou aponte um arquivo:
       # FAREJADOR_COOKIES: /data/meus-cookies.txt
       # Demais variáveis (pausa, cache, limites): ver README, seção Configuração.

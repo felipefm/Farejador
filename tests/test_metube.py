@@ -21,6 +21,15 @@ class TestMetube(unittest.TestCase):
         _, corpo = metube.montar_pedido(Config(metube_intervalo=120), "u")
         self.assertEqual(corpo["check_interval_minutes"], 120)
 
+    def test_formato_e_codec_configuraveis(self):
+        _, corpo = metube.montar_pedido(Config(metube_formato="mp4", metube_qualidade="1080", metube_codec="h264"), "u")
+        self.assertEqual((corpo["format"], corpo["quality"], corpo["codec"]), ("mp4", "1080", "h264"))
+
+    def test_ja_inscrito_conta_como_sucesso(self):
+        srv = FakeLLMServer(lambda c, u: json.dumps({"status": "error", "msg": "This URL is already subscribed"}))
+        self.assertEqual(metube.enviar(Config(metube_url="http://m"), "u", abrir=srv),
+                         (True, "já estava inscrito no MeTube"))
+
     def test_baixar_sempre_limita(self):
         caminho, corpo = metube.montar_pedido(Config(metube_modo="baixar", metube_limite=0, metube_qualidade="720"), "u")
         self.assertEqual(caminho, "/add")
