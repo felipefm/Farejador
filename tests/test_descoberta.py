@@ -154,10 +154,9 @@ class TestDescoberta(unittest.TestCase):
     def test_diagnostico_abas(self):
         r, _ = self.rodar()
         estados = [(a["fonte"], a["estado"]) for a in r["destaques"]["abas"]]
-        self.assertEqual(estados, [("aba Canais", "falhou"), ("aba Início", "sem_canais")])
+        self.assertEqual(estados, [("aba Canais", "inexistente"), ("aba Início", "sem_canais")])
         avisos = " ".join(r["avisos"])
-        self.assertIn("FALHOU", avisos)
-        self.assertIn("channels tab", avisos)
+        self.assertIn("aba Canais: o canal não tem", avisos)
         self.assertIn("NENHUM canal", avisos)
         self.assertIn("1 playlist, 1 video", avisos)
         self.assertIn("não sabe ler", avisos)

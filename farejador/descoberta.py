@@ -47,6 +47,8 @@ class Etapas:
 
 def _diagnostico_aba(fonte, url, r, erro):
     """Diferencia aba que falhou, aba vazia e aba que veio sem canais. Retorna (estado, texto)."""
+    if r is None and "does not have a channels tab" in (erro or ""):
+        return "inexistente", f"{fonte}: o canal não tem (o YouTube só mostra essa aba se o dono configurar)."
     if r is None:
         return "falhou", f"{fonte}: FALHOU no yt-dlp ({(erro or 'sem mensagem').strip()[:160]})."
     tipos = ", ".join(f"{n} {t}" for t, n in sorted(r.get("tipos", {}).items())) or "nada"

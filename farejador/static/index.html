@@ -214,10 +214,11 @@ function mostrarExecucao(e) {
   for (const [semente, r] of Object.entries(e.resumo || {})) {
     if (r.erro) { alvo.append(el("p", { className: "erro", textContent: `${semente}: ${r.erro}` })); continue; }
     const p = el("p", { className: "suave", textContent:
-      `${semente}: ${r.candidatos} candidatos (${r.novos} novos), ${r.consultas} buscas, ` +
+      `${semente}: ${r.candidatos} candidatos` +
+      (r.cruzados ? ` + ${r.cruzados} fracos que apareceram em outra semente` : "") +
+      ` (${r.novos} novos na fila), ${r.consultas} buscas, ` +
       `${r.requisicoes.rede} requisições na rede` +
       (r.requisicoes.limitadas ? `, ${r.requisicoes.limitadas} com 429` : "") +
-      (r.cruzados ? `, ${r.cruzados} fracos entraram por aparecer em outra semente` : "") +
       ` · cookies: ${r.cookies || "não"}${r.cookies_expirados ? " (expiraram nesta rodada)" : ""}` });
     alvo.append(p);
     if (r.avisos?.length) alvo.append(el("ul", { className: "avisos" }, ...r.avisos.map((a) => el("li", { textContent: a }))));
