@@ -57,6 +57,12 @@ def _resumo(r, cfg):
     ref = r["referencia"]
     print(f"\nReferência: {ref['nome']} ({ref['handle'] or ref['channel_id']}) — {ref['videos_lidos']} vídeos lidos, "
           f"{ref['videos_com_detalhes']} com detalhes, {ref['videos_com_tags']} com tags")
+    if ref["titulos_corrigidos"]:
+        print(f"Títulos: {ref['titulos_corrigidos']} vinham traduzidos na lista de vídeos; usei o original")
+    pls = r["playlists"]
+    if pls:
+        print(f"Playlists da aba Início: {len(pls)} lidas, {ref['videos_de_playlists']} vídeos a mais na amostra — "
+              + "; ".join(f"{pl['titulo']} ({pl['videos']})" for pl in pls))
     print(f"Termos ignorados: {', '.join(r['termos_ignorados']) or '(nenhum)'}")
     fmt = lambda xs: ", ".join(f"{x['termo']} ({x['videos']})" for x in xs) or "(nenhuma)"  # noqa: E731
     print(f"Palavras-chave (nº de vídeos): {fmt(r['palavras_chave'])}")

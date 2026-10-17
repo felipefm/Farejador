@@ -15,6 +15,9 @@ class Config:
     resultados_por_busca: int = 20    # vídeos por busca
     videos_referencia: int = 30       # últimos vídeos lidos do canal de referência
     detalhes_videos: int = 30         # vídeos abertos por completo (descrição/tags): 1 requisição cada
+    max_playlists: int = 6            # playlists da aba Início lidas (1 requisição cada)
+    videos_playlist: int = 15         # títulos lidos por playlist
+    idioma: str = "pt"                # idioma pedido ao YouTube nas playlists (títulos flat vêm traduzidos)
     min_videos_termo: int = 3         # termo precisa aparecer em N vídeos distintos
     ignorar_termos: str = ""          # termos extras a ignorar, separados por vírgula
     max_mencoes: int = 15             # canais citados nas descrições validados via yt-dlp (1 req. cada)

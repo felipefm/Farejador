@@ -72,7 +72,11 @@ def cenario():
         f"{REF}/channels": DownloadError("This channel does not have a channels tab"),
         f"{REF}/featured": {"channel_id": "UCref", "_avisos": ['Unsupported lockup view model content type "CHANNEL"'],
                             "entries": [{"ie_key": "Youtube", "url": "https://www.youtube.com/watch?v=r0"},
-                                        {"ie_key": "YoutubeTab", "url": "https://www.youtube.com/playlist?list=PL1"}]},
+                                        {"ie_key": "YoutubeTab", "url": "https://www.youtube.com/playlist?list=PL1",
+                                         "title": "Videocast Iscas Intelectuais"}]},
+        "https://www.youtube.com/playlist?list=PL1": {"title": "Videocast Iscas Intelectuais", "entries": [
+            {"id": "p1", "title": "Virtude e caráter na vida adulta"}, {"id": "p2", "title": "A virtude esquecida"},
+            {"id": "p3", "title": "Virtude, coragem e medo"}, {"id": "r1", "title": "repetido da aba Vídeos"}]},
         "https://www.youtube.com/@convidado/videos": canal(UCCONV, "Convidado", "@convidado", 10),
         "https://www.youtube.com/@Convidado/videos": canal(UCCONV, "Convidado", "@convidado", 10),
         f"https://www.youtube.com/channel/{UCCONV}/videos": canal(UCCONV, "Convidado", "@convidado", 10),
@@ -82,7 +86,10 @@ def cenario():
     }
     for i, d in enumerate(DESCRICOES):
         resp[f"https://www.youtube.com/watch?v=r{i}"] = {
-            "id": f"r{i}", "description": d + RODAPE, "tags": ["filosofia estoica"] if i == 0 else []}
+            "id": f"r{i}", "title": TITULOS[i], "description": d + RODAPE,
+            "tags": ["filosofia estoica"] if i == 0 else []}
+    # o modo flat devolve o último título traduzido para o inglês; a extração completa traz o original
+    resp[f"{REF}/videos"]["entries"][5]["title"] = "Cafezinho 601 – Stoic philosophy for beginners"
     return Respostas(resp)
 
 
@@ -169,3 +176,19 @@ class TestDescoberta(unittest.TestCase):
         cfg = Config(pausa=0)
         with self.assertRaises(ErroCanal):
             descobrir("@nada", cfg, Coletor(cfg, Cache(":memory:"), fab, dormir=lambda s: None))
+
+
+class TestTitulosEPlaylists(unittest.TestCase):
+    def test_titulo_original_e_playlists_na_amostra(self):
+        r, chamadas = TestDescoberta().rodar()
+        ref = r["referencia"]
+        self.assertEqual(ref["titulos_corrigidos"], 1)
+        frases = {f["termo"]: f["videos"] for f in r["frases"]}
+        self.assertEqual(frases["filosofia estoica"], 3)  # só fecha 3 com o título original em português
+        self.assertTrue(all("Stoic" not in c["consulta"] for c in r["consultas"]))
+        self.assertEqual(r["playlists"], [{"titulo": "Videocast Iscas Intelectuais",
+                                           "url": "https://www.youtube.com/playlist?list=PL1", "videos": 3}])
+        self.assertEqual(ref["videos_de_playlists"], 3)  # r1 já estava na amostra
+        termos = {p["termo"]: p["videos"] for p in r["palavras_chave"]}
+        self.assertEqual(termos["virtude"], 3)  # palavra que só existe nas playlists
+        self.assertIn("https://www.youtube.com/playlist?list=PL1", chamadas)

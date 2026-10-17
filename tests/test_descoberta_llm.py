@@ -49,7 +49,8 @@ class TestPipelineComLLM(unittest.TestCase):
         r, chamadas, _ = rodar()
         llm_q = [c["consulta"] for c in r["consultas"] if c["origem"] == "llm"]
         self.assertEqual(llm_q, ["liderança servidora na prática", "estoicismo para iniciantes"])  # sem "Café Brasil"
-        self.assertEqual(sum(c["origem"] != "llm" for c in r["consultas"]), 6)  # determinísticas intactas
+        base, _, _ = rodar(sem_llm=True)
+        self.assertEqual([c for c in r["consultas"] if c["origem"] != "llm"], base["consultas"])  # intactas
         self.assertIn("ytsearch20:estoicismo para iniciantes", chamadas)
         self.assertEqual(r["llm"]["consultas"], 2)
 
@@ -96,3 +97,11 @@ class TestPipelineComLLM(unittest.TestCase):
         self.assertEqual(srv.pedidos, [])
         self.assertFalse(r["llm"]["ligado"])
         self.assertNotIn("https://www.youtube.com/channel/UCbom/videos", chamadas)  # sem leitura extra
+
+
+class TestPromptComPlaylists(unittest.TestCase):
+    def test_playlists_vao_para_o_llm(self):
+        _, _, srv = rodar()
+        prompts = [p["corpo"]["messages"][0]["content"] for p in srv.pedidos]
+        self.assertIn("Videocast Iscas Intelectuais", prompts[0])           # consultas
+        self.assertTrue(any("Playlists: Videocast Iscas Intelectuais" in p for p in prompts[1:]))  # perfil

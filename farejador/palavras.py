@@ -30,6 +30,7 @@ video videos vídeo vídeos canal channel inscreva inscrevase subscribe like lik
 ep episodio episódio episode parte part cap capitulo capítulo live ao vivo shorts short official oficial
 full completo completa trailer teaser react reagindo reação reaction review news noticias notícias
 hd 4k official vlog clip clipe compilation compilação especial special edition versão version
+youtube mesa domingo palestra
 """.split()
 
 STOPWORDS = {unicodedata.normalize("NFC", w) for w in STOP_PT + STOP_EN + GENERICAS}
@@ -55,7 +56,8 @@ class Ignorados:
         for texto in [nome, *extras]:
             self.tokens |= {c for c, _ in tokens(texto)}
             self.tokens.add(sem_acento(texto.lower().strip()))
-        self.colados = [sem_acento(t.lower()) for t in (handle.lstrip("@"), re.sub(r"\W", "", nome)) if len(t) >= 4]
+        colados = [sem_acento(t.lower()) for t in (handle.lstrip("@"), re.sub(r"\W", "", nome)) if len(t) >= 4]
+        self.colados = list(dict.fromkeys(colados))  # nome e handle compactados costumam coincidir
 
     def __contains__(self, chave):
         if chave in self.tokens:
@@ -142,15 +144,28 @@ def extrair(videos, tags_canal=(), descricao_canal="", ignorar=SEM_IGNORADOS, mi
     for c in {c for c, _ in tokens(descricao_canal, ignorar)}:
         score[c] += 0.5
 
-    def montar(sc, dfs, formas, peso):
+    def montar(sc, dfs, formas):
         itens = [
-            {"chave": c, "termo": formas[c].most_common(1)[0][0], "score": round(sc[c] * peso, 2), "videos": n}
+            {"chave": c, "termo": formas[c].most_common(1)[0][0], "score": round(sc[c], 2), "videos": n}
             for c, n in dfs.items() if n >= min_videos and formas[c]
         ]
         itens.sort(key=lambda x: (-x["score"], -x["videos"], x["chave"]))
-        return itens[:limite]
+        return itens
 
-    return montar(score, df, forma, 1.0), montar(score_f, df_f, forma_f, 1.0)
+    return montar(score, df, forma)[:limite], _sem_extensoes(montar(score_f, df_f, forma_f))[:limite]
+
+
+def _sem_extensoes(frases):
+    """Descarta a frase que só estende outra que aparece em pelo menos tantos vídeos quanto ela.
+
+    Um bloco de tags copiado em vários vídeos gera "filtro linha", "filtro linha gamer" e
+    "filtro linha metal", todas com a mesma contagem; basta a mais curta. Se a extensão for mais
+    frequente que a frase curta (ex.: a curta aparece sozinha menos vezes), ela fica.
+    """
+    conjuntos = {f["chave"]: set(f["chave"].split()) for f in frases}
+    return [f for f in frases
+            if not any(o["chave"] != f["chave"] and conjuntos[o["chave"]] < conjuntos[f["chave"]]
+                       and o["videos"] >= f["videos"] for o in frases)]
 
 
 SEPARADORES = re.compile(r"\s*[|•–—]\s*|\s+-\s+|\s*:\s+")
@@ -192,7 +207,8 @@ def titulos_representativos(videos, unigramas, frases, ignorar=SEM_IGNORADOS, n=
         toks = [c for c, _ in tokens(limpo, ignorar)]
         bigr = {f"{a} {b}" for a, b in zip(toks, toks[1:])}
         pontos = len(set(toks) & chaves) + 2 * len(bigr & chaves_f)
-        candidatos.append((-pontos, pos, limpo))
+        if pontos:  # título sem nenhuma palavra-chave ("Feliz dia do Professor") não representa o canal
+            candidatos.append((-pontos, pos, limpo))
     candidatos.sort()
     escolhidos, conjuntos = [], []
     for _, _, limpo in candidatos:

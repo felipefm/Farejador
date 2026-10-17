@@ -63,6 +63,20 @@ Os títulos dos candidatos (nos resultados de busca e nas abas Vídeos), que vã
 - **Cosmético:** "(tudo contido em 'sertecmanutencao')" aparece duas vezes, porque o nome e o handle compactados coincidem. Remover a duplicata.
 - O `--ignorar-termos` do Café Brasil foi reaproveitado aqui; não teve efeito.
 
+## Fechamento da fase 1 (2026-10-17): implementado, aguardando o teste prático
+
+Escolha: grupo A + playlists.
+
+- [x] Título original da extração completa no lugar do traduzido (cache `video2:`; relê os 30 vídeos uma vez por canal).
+- [x] Playlists da aba Início na amostra (até 6 × 15 títulos, pedidos em `FAREJADOR_IDIOMA=pt`), também no prompt e no perfil do LLM.
+- [x] Título sem palavra-chave não vira busca.
+- [x] Frase que só estende outra pelo menos tão frequente é descartada.
+- [x] Stopwords novas: youtube, mesa, domingo, palestra.
+- [x] "(tudo contido em …)" sem duplicata.
+- [ ] Você roda de novo @LucianoPiresCafeBrasil e @SERTECMANUTENCAO e decide se aprova a fase 1.
+
+Ficam para depois da fase 1, se você quiser: penalidade de tamanho, ajuste do prompt do LLM (nota máxima para canal generalista), menção valendo 2 sinais, `FAREJADOR_LLM_AVALIAR` 20 e múltiplas sementes (G). O deno vai para a fase 2.
+
 ## Propostas, por prioridade (aguardando decisão)
 
 0. **Corrigir os títulos traduzidos** (bug acima): mudança pequena, custa reler os detalhes uma vez.

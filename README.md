@@ -4,17 +4,18 @@ Descobre canais novos do YouTube a partir de um canal de referência. Usa só o 
 
 ## Como funciona
 
-1. **Canal de referência.** Lê os últimos 30 vídeos em modo flat (1 requisição) e abre cada um por completo para obter descrição e tags (1 requisição por vídeo, com cache).
+1. **Canal de referência.** Lê os últimos 30 vídeos em modo flat (1 requisição) e abre cada um por completo para obter o título original, a descrição e as tags (1 requisição por vídeo, com cache).
 2. **Canais em destaque.** Tenta a aba "Canais" e depois a prateleira da aba Início. O aviso na saída diz se a aba *falhou* (erro do yt-dlp), se veio *vazia* (0 itens) ou se veio *sem canais* (só vídeos/playlists). Também avisa quando o yt-dlp declarou ter ignorado itens que não sabe ler.
-3. **Palavras-chave.** Vêm de títulos e tags dos vídeos. Um termo só conta se aparecer em pelo menos 3 vídeos distintos. São ignorados: stopwords PT/EN, palavras genéricas de YouTube, o nome do canal, qualquer palavra de 4 ou mais letras contida no @handle (`@LucianoPiresCafeBrasil` elimina café, brasil, pires, luciano) e os termos passados em `--ignorar-termos`.
-4. **Menções.** Busca nas descrições links de canais do YouTube (`/@handle`, `/channel/UC…`, `/c/…`, `/user/…`) e conta em quantos vídeos distintos cada um aparece. Ignora o próprio canal, canais cujo nome/handle contém o nome do criador e links presentes em 80% ou mais das descrições (rodapé). Cada canal citado é validado pelo yt-dlp: até 15, 1 requisição cada.
-5. **Buscas** (8 no total, `ytsearch`), nesta ordem de prioridade:
-   1. 3 títulos de vídeos recentes, limpos de nome do programa, número de episódio e hashtags, e diferentes entre si;
-   2. frases recorrentes;
+3. **Playlists da aba Início.** Lê até 6 playlists, com 15 títulos cada (1 requisição por playlist). O núcleo do canal costuma estar nelas, não nos vídeos mais recentes: no Café Brasil, os recentes eram palestras de um congresso e cortes de eleição. Os vídeos das playlists entram na contagem das palavras-chave, e os títulos das playlists reforçam termos, como as tags do canal. Os títulos das playlists também vão para o LLM.
+4. **Palavras-chave.** Vêm de títulos e tags dos vídeos. Um termo só conta se aparecer em pelo menos 3 vídeos distintos. São ignorados: stopwords PT/EN, palavras genéricas de YouTube, o nome do canal, qualquer palavra de 4 ou mais letras contida no @handle (`@LucianoPiresCafeBrasil` elimina café, brasil, pires, luciano) e os termos passados em `--ignorar-termos`.
+5. **Menções.** Busca nas descrições links de canais do YouTube (`/@handle`, `/channel/UC…`, `/c/…`, `/user/…`) e conta em quantos vídeos distintos cada um aparece. Ignora o próprio canal, canais cujo nome/handle contém o nome do criador e links presentes em 80% ou mais das descrições (rodapé). Cada canal citado é validado pelo yt-dlp: até 15, 1 requisição cada.
+6. **Buscas** (8 no total, `ytsearch`), nesta ordem de prioridade:
+   1. 3 títulos de vídeos recentes, limpos de nome do programa, número de episódio e hashtags, diferentes entre si e com pelo menos uma palavra-chave;
+   2. frases recorrentes (uma frase que só estende outra pelo menos tão frequente é descartada: "filtro linha gamer" sai quando há "filtro linha");
    3. pares de palavras-chave;
    4. palavra solta, só se sobrar espaço.
-6. **Filtros.** Remove o próprio canal, os canais do `exclude.txt`, os canais automáticos ("- Topic", VEVO) e os **inativos** (sem vídeo em 60 dias). Um resultado de busca recente basta para marcar o canal como ativo. Fora isso, a atividade é confirmada na aba Vídeos do candidato (até 25).
-7. **Ranking:**
+7. **Filtros.** Remove o próprio canal, os canais do `exclude.txt`, os canais automáticos ("- Topic", VEVO) e os **inativos** (sem vídeo em 60 dias). Um resultado de busca recente basta para marcar o canal como ativo. Fora isso, a atividade é confirmada na aba Vídeos do candidato (até 25).
+8. **Ranking:**
 
    | Sinal | Pontos |
    |---|---|
@@ -23,7 +24,7 @@ Descobre canais novos do YouTube a partir de um canal de referência. Usa só o 
    | Em destaque no canal de referência | +15 |
 
    A lista principal só aceita candidatos com **2 sinais independentes ou mais**: cada busca distinta conta 1, a menção conta 1 e o destaque conta 1. Os demais aparecem com `--mostrar-fracos`.
-8. **Saída.** Tabela com o motivo de cada score e `resultado.json` com tudo: termos, consultas, diagnóstico das abas, menções, removidos e custo por etapa.
+9. **Saída.** Tabela com o motivo de cada score e `resultado.json` com tudo: termos, consultas, diagnóstico das abas, menções, removidos e custo por etapa.
 
 Para respeitar o YouTube: pausa de 2,5 s entre requisições, cache em SQLite (7 dias; `0` = nunca expira), retry com backoff exponencial e parada imediata se aparecer anti-bot ou HTTP 429. Toda requisição e todo erro ficam na tabela `eventos` de `data/farejador.db`.
 
@@ -40,7 +41,7 @@ python3 -m venv .venv
 - `--salvar-bruto`: grava o retorno cru do yt-dlp (info dict + avisos emitidos) em `data/bruto/`. As abas de destaque são relidas da rede para isso; o resto só é gravado quando vai à rede (o cache guarda a versão reduzida).
 - `exclude.txt` (opcional): um @handle, ID `UC...` ou URL por linha. Use `#` para comentários.
 
-Custo típico sem cache: cerca de 1 + 30 + 2 + 15 + 8 + 25 ≈ 80 requisições, ou seja, uns 3 a 4 minutos só de pausa. Rodar de novo com o cache quente custa uma fração disso.
+Custo típico sem cache: cerca de 1 + 30 + 2 + 6 + 15 + 8 + 25 ≈ 87 requisições, ou seja, uns 4 minutos só de pausa. Rodar de novo com o cache quente custa uma fração disso.
 
 ## LLM local (opcional, desligado por padrão)
 
@@ -89,6 +90,9 @@ Toda opção da CLI também pode vir de uma variável de ambiente `FAREJADOR_<NO
 | `FAREJADOR_RESULTADOS_POR_BUSCA` | 20 | vídeos por busca |
 | `FAREJADOR_VIDEOS_REFERENCIA` | 30 | vídeos lidos do canal de referência |
 | `FAREJADOR_DETALHES_VIDEOS` | 30 | vídeos abertos por completo (descrição/tags) |
+| `FAREJADOR_MAX_PLAYLISTS` | 6 | playlists da aba Início lidas |
+| `FAREJADOR_VIDEOS_PLAYLIST` | 15 | títulos lidos por playlist |
+| `FAREJADOR_IDIOMA` | pt | idioma pedido ao YouTube ao ler playlists (vazio = padrão do yt-dlp, inglês) |
 | `FAREJADOR_MIN_VIDEOS_TERMO` | 3 | vídeos distintos para um termo valer |
 | `FAREJADOR_IGNORAR_TERMOS` | — | termos extras a ignorar, separados por vírgula |
 | `FAREJADOR_MAX_MENCOES` | 15 | canais citados validados |
@@ -128,6 +132,12 @@ Os testes não acessam a rede: o yt-dlp é simulado.
 ## Suposições e limitações
 
 - **Datas aproximadas.** As datas nos resultados flat vêm de textos como "3 weeks ago". Servem para a janela de 60 dias, não para o dia exato. Um resultado de busca antigo **não** prova inatividade (a busca pode ter trazido um vídeo velho), por isso a confirmação é feita na aba Vídeos do canal. Candidato que não pôde ser checado fica com "atividade não verificada" em vez de ser excluído.
+- **Títulos traduzidos.** Em modo flat, o YouTube devolve os títulos traduzidos para o idioma da interface que o yt-dlp pede (inglês). Nos 30 vídeos do @SERTECMANUTENCAO, os 30 chegaram assim: "Feliz dia do Professor" virou "Happy Teacher's Day".
+  - **Vídeos do canal de referência:** o título vem da extração completa, que traz o original. O resumo mostra quantos foram corrigidos.
+  - **Playlists:** pedidas no idioma de `FAREJADOR_IDIOMA` (padrão `pt`). Num canal em português, isso devolve o original; num canal em outro idioma, ajuste a variável. Com idioma diferente de inglês as datas aproximadas deixam de ser lidas, mas as playlists não usam datas.
+  - **Candidatos:** títulos de resultados de busca e da aba Vídeos dos candidatos, que vão para o LLM, continuam traduzidos. Corrigir custaria 1 extração completa por vídeo.
+  - O idioma não é aplicado no resto, porque o yt-dlp só sabe ler datas relativas em inglês ("3 weeks ago"), e a checagem de atividade depende delas.
+- **Canais generalistas com amostra recente enviesada.** Quando os vídeos recentes e as playlists não representam o assunto do canal, as palavras-chave levam a buscas genéricas e os grandes veículos dominam. Foi o que aconteceu com o @LucianoPiresCafeBrasil antes da leitura das playlists. Funciona melhor com canais de nicho (ex.: eletrônica).
 - **Palavras-chave só de títulos e tags.** As descrições dos vídeos ficam de fora das palavras-chave: costumam repetir rodapé (patrocínio, redes sociais), que dominaria a contagem. Elas são usadas só para as menções.
 - **Ignorar pelo @handle é agressivo.** Qualquer palavra de 4 ou mais letras contida no handle some, mesmo quando é assunto legítimo (ex.: "brasil" num canal sobre o Brasil). Os nomes de quadros e programas que não estão no handle precisam de `--ignorar-termos`.
 - **Menções só por link.** Um "@fulano" solto no texto é ambíguo (Instagram, X…) e não conta. "Canal do próprio criador" é heurística: o nome/handle contém o nome ou o handle da referência, ou o link aparece em 80% ou mais das descrições (com 5 vídeos ou mais).

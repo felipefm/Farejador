@@ -184,7 +184,7 @@ def _trecho(texto, n=200):
     return t[:n] + ("…" if len(t) > n else "")
 
 
-def prompt_consultas(nome, titulos, tags, descricoes, proibidos):
+def prompt_consultas(nome, titulos, tags, descricoes, proibidos, playlists=()):
     linhas = [
         "Você ajuda a descobrir canais do YouTube parecidos com um canal de referência.",
         "Gere de 8 a 10 consultas de busca para o YouTube sobre os TEMAS deste canal, do jeito que alguém "
@@ -200,6 +200,8 @@ def prompt_consultas(nome, titulos, tags, descricoes, proibidos):
         "Títulos recentes:",
         *[f"- {t}" for t in titulos],
     ]
+    if playlists:
+        linhas.append("Playlists do canal (onde costuma estar o conteúdo principal): " + "; ".join(playlists))
     if tags:
         linhas.append("Tags: " + ", ".join(tags))
     if descricoes:

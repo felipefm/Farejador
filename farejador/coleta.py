@@ -168,7 +168,7 @@ class Coletor:
 
         Com salvar_bruto, a aba é sempre relida da rede (o cache só guarda a versão reduzida).
         """
-        chave = f"destaques2:{url}"  # v2: guarda tipos/avisos; ignora cache do formato antigo
+        chave = f"destaques3:{url}"  # v3: guarda playlists; ignora cache dos formatos antigos
         forcar = self.cfg.salvar_bruto and not self._arquivo_bruto(chave).exists()
         reduzir = lambda info: dict(_reduzir_destaques(info), avisos_ytdlp=list(self.ultimos_avisos))  # noqa: E731
         return self._com_cache(chave, url, reduzir, {"playlistend": 100}, forcar_rede=forcar)
@@ -176,10 +176,25 @@ class Coletor:
     def buscar(self, consulta, n):
         return self._com_cache(f"busca:{n}:{consulta.lower()}", f"ytsearch{n}:{consulta}", _reduzir_busca)
 
+    def playlist(self, url, n):
+        """Título da playlist e de até n vídeos (flat).
+
+        Pede a interface no idioma de FAREJADOR_IDIOMA: em modo flat o YouTube devolve títulos
+        traduzidos para o idioma da interface (padrão do yt-dlp: inglês). O custo é perder as datas
+        aproximadas (o yt-dlp só lê "3 weeks ago" em inglês), que aqui não são usadas.
+        """
+        idioma = self.cfg.idioma.strip()
+        args = {"youtubetab": {"approximate_date": [""]}}
+        if idioma:
+            args["youtube"] = {"lang": [idioma]}
+        return self._com_cache(f"playlist:{idioma}:{url}:{n}", url, _reduzir_playlist,
+                               {"playlistend": n, "extractor_args": args})
+
     def video(self, video_id):
-        """Extração completa de um vídeo (tags, descrição, data). Mais pesada; usar com parcimônia."""
+        """Extração completa de um vídeo (título original, tags, descrição, data). 1 requisição cada."""
         extras = {"extract_flat": False, "ignore_no_formats_error": True}
-        return self._com_cache(f"video:{video_id}", f"https://www.youtube.com/watch?v={video_id}",
+        # v2: guarda o título; o do modo flat vem traduzido para o idioma da interface
+        return self._com_cache(f"video2:{video_id}", f"https://www.youtube.com/watch?v={video_id}",
                                _reduzir_video, extras)
 
 
@@ -230,7 +245,7 @@ def _tipo_entrada(e):
 
 
 def _reduzir_destaques(info):
-    canais, links, tipos = [], [], Counter()
+    canais, links, playlists, tipos = [], [], [], Counter()
     for e in info.get("entries") or []:
         if not e:
             continue
@@ -245,13 +260,22 @@ def _reduzir_destaques(info):
             })
         elif tipo == "link_canais":
             links.append(e["url"])  # prateleira "Canais em destaque" que aponta para outra página
-    return {"canais": canais, "links": links, "tipos": dict(tipos), "total": sum(tipos.values()),
-            "dono": info.get("channel_id")}
+        elif tipo == "playlist":
+            playlists.append({"url": e["url"], "titulo": e.get("title") or ""})
+    return {"canais": canais, "links": links, "playlists": playlists, "tipos": dict(tipos),
+            "total": sum(tipos.values()), "dono": info.get("channel_id")}
+
+
+def _reduzir_playlist(info):
+    return {"titulo": info.get("title") or "",
+            "videos": [{"id": e.get("id"), "titulo": e.get("title") or ""}
+                       for e in (info.get("entries") or []) if e and e.get("id")]}
 
 
 def _reduzir_video(info):
     return {
         "id": info.get("id"),
+        "titulo": info.get("title") or "",
         "tags": info.get("tags") or [],
         "descricao": info.get("description") or "",
         "upload_date": info.get("upload_date"),

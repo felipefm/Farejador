@@ -65,5 +65,24 @@ class TestPalavras(unittest.TestCase):
     def test_titulos_representativos_diversos(self):
         videos = [{"titulo": "Filosofia estoica no trabalho"}, {"titulo": "Filosofia estoica para iniciantes"},
                   {"titulo": "Liderança em tempos de crise"}]
-        t = titulos_representativos(videos, [{"chave": "estoica"}], [{"chave": "filosofia estoica"}], n=3)
+        t = titulos_representativos(videos, [{"chave": "estoica"}, {"chave": "lideranca"}],
+                                    [{"chave": "filosofia estoica"}], n=3)
         self.assertEqual(t, ["Filosofia estoica no trabalho", "Liderança em tempos de crise"])
+
+    def test_generica_youtube(self):
+        self.assertEqual(tokens("YouTube mesa redonda no domingo, palestra"), [("redonda", "redonda")])
+
+    def test_lista_sem_duplicata(self):
+        ig = Ignorados("Sertec Manutenção", "@SERTECMANUTENCAO")
+        self.assertEqual(sum(t.startswith("(tudo contido") for t in ig.lista()), 1)
+
+    def test_frase_que_so_estende_outra_cai(self):
+        videos = [{"titulo": f"vídeo {i}", "tags": ["filtro de linha", "filtro de linha gamer", "filtro linha metal",
+                                                   "régua tomada"]} for i in range(6)]
+        _, frases = extrair(videos)
+        self.assertEqual(sorted(f["termo"] for f in frases), ["filtro linha", "régua tomada"])
+
+    def test_titulo_sem_palavra_chave_nao_vira_busca(self):
+        videos = [{"titulo": "Feliz dia do Professor"}, {"titulo": "Multímetro digital barato"}]
+        t = titulos_representativos(videos, [{"chave": "multimetro"}], [], n=3)
+        self.assertEqual(t, ["Multímetro digital barato"])

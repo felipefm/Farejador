@@ -63,7 +63,7 @@ def _diagnostico_aba(fonte, url, r, erro):
 def _destaques(coletor, base, dono, avisos, log):
     """Tenta a aba "Canais"; se não houver, a aba inicial (prateleira de canais em destaque)."""
     tentativas = [("aba Canais", f"{base}/channels"), ("aba Início", f"{base}/featured")]
-    vistos, diagnostico = set(), []
+    vistos, diagnostico, playlists = set(), [], []
     while tentativas:
         fonte, url = tentativas.pop(0)
         if url in vistos:
@@ -73,15 +73,35 @@ def _destaques(coletor, base, dono, avisos, log):
         r = coletor.destaques(url)
         if r is not None:
             r = dict(r, canais=[c for c in r["canais"] if c["channel_id"] != dono])
+            playlists += [pl for pl in r.get("playlists", []) if pl["url"] not in {x["url"] for x in playlists}]
         estado, texto = _diagnostico_aba(fonte, url, r, coletor.ultimo_erro)
         diagnostico.append({"fonte": fonte, "url": url, "estado": estado, "detalhe": texto})
         if estado == "ok":
-            return fonte, r["canais"], diagnostico
+            return fonte, r["canais"], diagnostico, playlists
         avisos.append(texto)
         if r and r["links"]:  # prateleira que só aponta para outra página de canais
             tentativas.insert(0, (f"{fonte} → link da prateleira", r["links"][0]))
     avisos.append("Sem canais em destaque: o bônus de destaque não foi aplicado a ninguém.")
-    return None, [], diagnostico
+    return None, [], diagnostico, playlists
+
+
+def _playlists(coletor, cfg, listadas, ja_lidos, log):
+    """Lê as playlists da aba Início: o núcleo do canal costuma estar ali, não nos vídeos recentes.
+
+    Retorna (vídeos novos para as palavras-chave, relatório por playlist).
+    """
+    videos, relatorio = [], []
+    for pl in listadas[: cfg.max_playlists]:
+        log(f"lendo playlist {pl['titulo'] or pl['url']!r}…")
+        info = coletor.playlist(pl["url"], cfg.videos_playlist)
+        if not info:
+            relatorio.append({"titulo": pl["titulo"], "url": pl["url"], "videos": 0, "erro": True})
+            continue
+        novos = [v for v in info["videos"] if v["id"] not in ja_lidos]
+        ja_lidos.update(v["id"] for v in novos)
+        videos += [{"id": v["id"], "titulo": v["titulo"], "tags": []} for v in novos]
+        relatorio.append({"titulo": info["titulo"] or pl["titulo"], "url": pl["url"], "videos": len(novos)})
+    return videos, relatorio
 
 
 def _mencoes(coletor, cfg, videos, ref, agora, avisos, log):
@@ -135,14 +155,14 @@ def _dados_do_canal(c, info, cfg, agora):
     c["atividade"] = ranking.atividade([v["timestamp"] for v in info["videos"]], cfg.dias_ativo, agora)
 
 
-def _consultas_llm(llm, ref, videos, unigramas, frases, ignorar, consultas, cfg, avisos, log):
+def _consultas_llm(llm, ref, videos, playlists, ignorar, consultas, cfg, avisos, log):
     """Consultas sobre o tema pedidas ao LLM, sem termos do canal e sem repetir as determinísticas."""
     log("pedindo consultas ao LLM…")
     tags = list(dict.fromkeys(t for v in videos for t in v.get("tags") or []))[:40]
     descricoes = [v["descricao"] for v in videos if v.get("descricao")][:5]
     proibidos = [t for t in ignorar.lista() if not t.startswith("(")] + [ref.get("handle") or ""]
     prompt = llm_mod.prompt_consultas(ref.get("nome"), [v["titulo"] for v in videos], tags, descricoes,
-                                      [p for p in proibidos if p])
+                                      [p for p in proibidos if p], playlists)
     ja = {q.lower() for q, _ in consultas}
 
     def proibido(q):
@@ -155,10 +175,11 @@ def _consultas_llm(llm, ref, videos, unigramas, frases, ignorar, consultas, cfg,
     return [(q, "llm") for q in r or []]
 
 
-def _perfil(ref, unigramas, frases, videos):
+def _perfil(ref, unigramas, frases, videos, playlists=()):
     return "\n".join([
         f"Canal: {ref.get('nome')}",
         "Temas: " + ", ".join([f["termo"] for f in frases] + [u["termo"] for u in unigramas[:10]]),
+        *([("Playlists: " + "; ".join(playlists))] if playlists else []),
         "Títulos recentes:",
         *[f"- {v['titulo']}" for v in videos[:10]],
     ])
@@ -214,7 +235,7 @@ def descobrir(entrada, cfg, coletor, exclusoes=frozenset(), agora=None, log=lamb
     alvo = videos[: cfg.detalhes_videos]
     log(f"detalhes de {len(alvo)} vídeos: até {len(alvo)} requisições, ~{len(alvo) * cfg.pausa:.0f} s de "
         "pausa se nada estiver em cache", detalhe=True)
-    com_detalhes = com_tags = 0
+    com_detalhes = com_tags = corrigidos = 0
     with etapas.medir(f"detalhes de {len(alvo)} vídeos"):
         for i, v in enumerate(alvo, 1):
             log(f"detalhes do vídeo {i}/{len(alvo)} ({v['id']})…")
@@ -222,6 +243,10 @@ def descobrir(entrada, cfg, coletor, exclusoes=frozenset(), agora=None, log=lamb
             if d:
                 com_detalhes += 1
                 v["tags"] = d["tags"]
+                # o título do modo flat vem traduzido para o idioma da interface; o da extração completa é o original
+                if d.get("titulo") and d["titulo"] != v["titulo"]:
+                    v["titulo_flat"], v["titulo"] = v["titulo"], d["titulo"]
+                    corrigidos += 1
                 v["descricao"] = d["descricao"] or v.get("descricao", "")
                 com_tags += bool(d["tags"])
     if alvo and com_detalhes < len(alvo):
@@ -230,10 +255,18 @@ def descobrir(entrada, cfg, coletor, exclusoes=frozenset(), agora=None, log=lamb
         avisos.append("Nenhum vídeo tinha tags: palavras-chave vieram só dos títulos.")
 
     with etapas.medir("abas de destaque"):
-        fonte_destaque, destaques, diag_abas = _destaques(coletor, base, ref["channel_id"], avisos, log)
+        fonte_destaque, destaques, diag_abas, listadas = _destaques(coletor, base, ref["channel_id"], avisos, log)
+    if len(listadas) > cfg.max_playlists:
+        avisos.append(f"{len(listadas)} playlists na aba Início; só as {cfg.max_playlists} primeiras foram lidas "
+                      "(FAREJADOR_MAX_PLAYLISTS).")
+    with etapas.medir(f"playlists ({min(len(listadas), cfg.max_playlists)})"):
+        videos_pl, rel_playlists = _playlists(coletor, cfg, listadas, {v["id"] for v in videos}, log)
+    titulos_pl = [r["titulo"] for r in rel_playlists if r["titulo"]]
 
     ignorar = palavras.Ignorados(ref.get("nome") or "", ref.get("handle") or "", cfg.termos_ignorados())
-    unigramas, frases = palavras.extrair(videos, ref["tags"], ref["descricao"], ignorar, cfg.min_videos_termo)
+    # vídeos das playlists contam como evidência; títulos das playlists só reforçam (como tags do canal)
+    unigramas, frases = palavras.extrair(videos + videos_pl, ref["tags"] + titulos_pl, ref["descricao"], ignorar,
+                                         cfg.min_videos_termo)
     titulos = palavras.titulos_representativos(videos, unigramas, frases, ignorar, cfg.buscas_titulos)
     consultas = busca.montar_consultas(unigramas, frases, cfg.max_buscas, titulos)
     if not unigramas and not frases:
@@ -241,7 +274,7 @@ def descobrir(entrada, cfg, coletor, exclusoes=frozenset(), agora=None, log=lamb
                       "(FAREJADOR_MIN_VIDEOS_TERMO); só títulos foram usados nas buscas.")
     if llm:
         with etapas.medir("LLM: consultas"):
-            consultas += _consultas_llm(llm, ref, videos, unigramas, frases, ignorar, consultas, cfg, avisos, log)
+            consultas += _consultas_llm(llm, ref, videos, titulos_pl, ignorar, consultas, cfg, avisos, log)
     if not consultas:
         avisos.append("Nenhuma consulta montada: nada foi buscado.")
 
@@ -321,7 +354,7 @@ def descobrir(entrada, cfg, coletor, exclusoes=frozenset(), agora=None, log=lamb
     avaliados = 0
     if llm and fortes:
         with etapas.medir("LLM: reavaliação"):
-            avaliados = _avaliar_llm(llm, coletor, fortes, _perfil(ref, unigramas, frases, videos), cfg, agora,
+            avaliados = _avaliar_llm(llm, coletor, fortes, _perfil(ref, unigramas, frases, videos, titulos_pl), cfg, agora,
                                      avisos, log)
         fortes = filtrar_inativos(fortes)
     ranking.combinar(fortes, cfg.llm_peso if llm else 0)
@@ -345,12 +378,14 @@ def descobrir(entrada, cfg, coletor, exclusoes=frozenset(), agora=None, log=lamb
             "entrada": entrada, "channel_id": ref["channel_id"], "nome": ref.get("nome"),
             "handle": ref.get("handle"), "seguidores": ref.get("seguidores"), "videos_lidos": len(videos),
             "videos_com_detalhes": com_detalhes, "videos_com_tags": com_tags, "tags_do_canal": ref["tags"],
+            "titulos_corrigidos": corrigidos, "videos_de_playlists": len(videos_pl),
         },
         "termos_ignorados": ignorar.lista(),
         "palavras_chave": [{"termo": u["termo"], "videos": u["videos"]} for u in unigramas],
         "frases": [{"termo": f["termo"], "videos": f["videos"]} for f in frases],
         "consultas": [{"consulta": q, "origem": o} for q, o in consultas],
         "destaques": {"fonte": fonte_destaque, "canais": [d.get("nome") for d in destaques], "abas": diag_abas},
+        "playlists": rel_playlists,
         "mencoes": rel_mencoes,
         "removidos": removidos,
         "inativos": inativos,

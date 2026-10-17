@@ -131,14 +131,57 @@ class TestDiagnosticoEBruto(unittest.TestCase):
             aba = {"channel_id": "UCref", "entries": [], "_avisos": ["aviso x"]}
             c, chamadas, _ = coletor({"https://www.youtube.com/@r/featured": aba,
                                       "ytsearch20:a": BUSCA}, pausa=0, dados=d, salvar_bruto=True)
-            c.cache.put("destaques2:https://www.youtube.com/@r/featured", {"info": {"canais": []}})
+            c.cache.put("destaques3:https://www.youtube.com/@r/featured", {"info": {"canais": []}})
             c.destaques("https://www.youtube.com/@r/featured")  # ignora o cache: precisa do cru
             c.buscar("a", 20)
             arquivos = sorted(p.name for p in (Path(d) / "bruto").iterdir())
             self.assertEqual(len(arquivos), 2)
-            cru = json.loads((Path(d) / "bruto" / [a for a in arquivos if a.startswith("destaques2")][0]).read_text())
+            cru = json.loads((Path(d) / "bruto" / [a for a in arquivos if a.startswith("destaques3")][0]).read_text())
             self.assertEqual(cru["avisos_ytdlp"], ["aviso x"])
             self.assertEqual(cru["info"]["channel_id"], "UCref")
             self.assertEqual(len(chamadas), 2)
             c.destaques("https://www.youtube.com/@r/featured")  # já tem o cru: volta a usar o cache
             self.assertEqual(len(chamadas), 2)
+
+
+class TestPlaylistsETitulos(unittest.TestCase):
+    def test_video_guarda_titulo_original(self):
+        c, _, _ = coletor({"https://www.youtube.com/watch?v=v1": {"id": "v1", "title": "Feliz dia do Professor"}}, pausa=0)
+        self.assertEqual(c.video("v1")["titulo"], "Feliz dia do Professor")
+
+    def test_destaques_lista_playlists(self):
+        aba = {"channel_id": "UCref", "entries": [
+            {"url": "https://www.youtube.com/playlist?list=PL1", "title": "Podcast Café Brasil"}]}
+        c, _, _ = coletor({"u": aba}, pausa=0)
+        self.assertEqual(c.destaques("u")["playlists"],
+                         [{"url": "https://www.youtube.com/playlist?list=PL1", "titulo": "Podcast Café Brasil"}])
+
+    def test_playlist_pede_idioma_e_cacheia_por_idioma(self):
+        opcoes = []
+        resp = {"title": "Iscas Intelectuais", "entries": [{"id": "a", "title": "Estoicismo"}, None, {"title": "sem id"}]}
+
+        class Y:
+            def __init__(self, o):
+                opcoes.append(o)
+
+            def __enter__(self):
+                return self
+
+            def __exit__(self, *a):
+                return False
+
+            def extract_info(self, url, download=False):
+                return resp
+
+        cfg = Config(pausa=0)
+        c = Coletor(cfg, Cache(":memory:"), Y, dormir=lambda s: None)
+        r = c.playlist("https://www.youtube.com/playlist?list=PL1", 15)
+        self.assertEqual(r, {"titulo": "Iscas Intelectuais", "videos": [{"id": "a", "titulo": "Estoicismo"}]})
+        self.assertEqual(opcoes[0]["extractor_args"]["youtube"], {"lang": ["pt"]})
+        self.assertEqual(opcoes[0]["playlistend"], 15)
+        c.playlist("https://www.youtube.com/playlist?list=PL1", 15)
+        self.assertEqual(len(opcoes), 1)  # cache
+        cfg.idioma = ""
+        c.playlist("https://www.youtube.com/playlist?list=PL1", 15)
+        self.assertEqual(len(opcoes), 2)  # outro idioma, outra chave
+        self.assertNotIn("youtube", opcoes[1]["extractor_args"])
