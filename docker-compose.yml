@@ -14,6 +14,8 @@ services:
       # assinar = só vídeos novos | baixar = os últimos FAREJADOR_METUBE_LIMITE vídeos
       FAREJADOR_METUBE_URL: ""            # ex.: http://192.168.0.11:8081
       FAREJADOR_METUBE_MODO: assinar
+      # Cookies do YouTube: envie pela tela (fica em ./data/cookies.txt, tem prioridade) ou aponte um arquivo:
+      # FAREJADOR_COOKIES: /data/meus-cookies.txt
       # Demais variáveis (pausa, cache, limites): ver README, seção Configuração.
     user: "1000:1000"   # dono dos arquivos em ./data
     ports:

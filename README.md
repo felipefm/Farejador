@@ -98,6 +98,7 @@ Tem três blocos:
 | `GET /api/candidatos?estado=novo\|aprovado\|descartado` | lista |
 | `POST /api/candidatos/{channel_id}/aprovar` ou `/descartar` | decide (409 em transição proibida) |
 | `POST /api/candidatos/{channel_id}/metube` | reenvia um aprovado ao MeTube |
+| `GET` / `PUT` / `DELETE /api/cookies` | estado, envio (corpo cru) e remoção do cookies.txt |
 | `GET /api/exportar` | URLs dos aprovados, uma por linha (texto) |
 | `GET /api/docs` | documentação interativa |
 
@@ -108,6 +109,21 @@ Com `FAREJADOR_METUBE_URL` preenchida, aprovar um canal o envia ao MeTube. Se fa
 - **`FAREJADOR_METUBE_MODO=assinar` (padrão):** `POST /subscribe` com `{"url", "download_type": "video", "format": "any", "quality"}`. O MeTube passa a baixar **só os vídeos novos** do canal. `FAREJADOR_METUBE_INTERVALO` (minutos) define o intervalo de checagem; 0 usa o padrão do MeTube.
 - **`baixar`:** `POST /add` com os mesmos campos mais `playlist_item_limit = FAREJADOR_METUBE_LIMITE` (padrão 5). O limite é sempre enviado, porque mandar um canal sem limite faria o MeTube **baixar o canal inteiro** (o padrão dele é 0, que significa tudo).
 - **Sucesso e falha:** é sucesso quando a resposta é HTTP 2xx e não traz `{"status": "error"}`. O MeTube pode responder 200 com erro no corpo. Envios e erros vão para a tabela `eventos` (`metube` e `metube_erro`).
+
+## Cookies do YouTube (opcional)
+
+Sem cookies, o yt-dlp acessa o YouTube anonimamente, e o YouTube pode responder `429 Too Many Requests`. Quando isso acontece, o resumo da descoberta mostra quantas requisições levaram 429, mesmo que o yt-dlp tenha contornado o erro.
+
+O esquema é o mesmo do MeTube:
+
+- **Envio pela tela** (ou `PUT /api/cookies` com o arquivo no corpo): o arquivo vai para `data/cookies.txt`, com permissão 600. O limite é 1 MB, e só é aceito o formato Netscape com cookies de youtube.com. A API nunca devolve o conteúdo.
+- **`FAREJADOR_COOKIES`:** caminho para um arquivo já existente. Se houver um arquivo enviado pela tela, ele tem prioridade. "Remover" na tela (`DELETE /api/cookies`) só apaga o enviado.
+- **Escrita:** o yt-dlp regrava o arquivo a cada extração com os cookies renovados, então ele precisa ser gravável pelo usuário do container (1000).
+
+Cuidados:
+- Use uma conta secundária. Com cookies, as requisições ficam ligadas à conta, e o YouTube pode restringi-la.
+- Exporte os cookies de uma janela anônima e feche a janela depois. Se o navegador continuar usando aquela sessão, o YouTube troca os cookies e o arquivo para de valer.
+- Cookies reduzem o 429, mas não o eliminam: o limite também é aplicado por IP.
 
 ## LLM local (opcional, desligado por padrão)
 

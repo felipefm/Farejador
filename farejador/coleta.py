@@ -7,8 +7,11 @@ from collections import Counter
 from yt_dlp import YoutubeDL
 from yt_dlp.utils import DownloadError, ExtractorError
 
+from . import cookies
+
 # Trechos de mensagens do yt-dlp e o que significam para nós.
 SINAIS_BLOQUEIO = ("sign in to confirm", "not a bot", "http error 429", "too many requests", "rate-limit", "rate limit")
+SINAIS_LIMITE = ("http error 429", "too many requests")  # contados mesmo quando o yt-dlp contorna
 SINAIS_TRANSITORIO = ("http error 5", "timed out", "timeout", "connection", "temporarily")
 SINAIS_PERMANENTE = (
     "does not exist", "not available", "unavailable", "does not have a", "http error 404", "private video",
@@ -69,6 +72,8 @@ class Coletor:
         self.ultimo_erro = None   # mensagem do último erro de _extrair/cache negativo
         self.ultimos_avisos = []  # avisos do yt-dlp na última chamada de rede
         self.avisos_ytdlp = 0     # total de avisos do yt-dlp nesta execução
+        self.limitadas = 0        # requisições em que o YouTube respondeu 429 (aviso ou erro)
+        self.cookies, self.cookies_origem = cookies.ativo(cfg)  # lido uma vez por execução
 
     # ---------------------------------------------------------------- núcleo
     def _opcoes(self, logger, extras):
@@ -85,6 +90,8 @@ class Coletor:
             "extractor_args": {"youtubetab": {"approximate_date": [""]}},
             "logger": logger,
         }
+        if self.cookies is not None:
+            opcoes["cookiefile"] = str(self.cookies)
         opcoes.update(extras or {})
         return opcoes
 
@@ -94,6 +101,10 @@ class Coletor:
             if falta > 0:
                 self.dormir(falta)
         self._ultima = self.relogio()
+
+    def _contar_limite(self, avisos, erro=None):
+        if any(s in m.lower() for m in [*avisos, erro or ""] for s in SINAIS_LIMITE):
+            self.limitadas += 1
 
     def _extrair(self, chave, url, extras=None):
         """Retorna o info dict bruto, ou None em erro permanente/esgotado (fica registrado em eventos)."""
@@ -109,11 +120,13 @@ class Coletor:
                 info = ydl.sanitize_info(info) if hasattr(ydl, "sanitize_info") else info
                 self.cache.evento("info", "rede", url, "ok", tentativa)
                 self.avisos_ytdlp += len(logger.avisos)
+                self._contar_limite(logger.avisos)
                 self._salvar_bruto(chave, url, info, None)
                 return info
             except (DownloadError, ExtractorError) as e:
                 self.avisos_ytdlp += len(logger.avisos)
                 ultimo_erro = self.ultimo_erro = str(e)
+                self._contar_limite(logger.avisos, ultimo_erro)
                 tipo = classificar(ultimo_erro)
                 self.cache.evento("erro", tipo, url, ultimo_erro, tentativa)
                 if tipo == "permanente":

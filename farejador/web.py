@@ -4,10 +4,10 @@
 """
 from pathlib import Path
 
-from fastapi import Body, FastAPI, HTTPException
+from fastapi import Body, FastAPI, HTTPException, Request
 from fastapi.responses import FileResponse, PlainTextResponse
 
-from . import metube
+from . import cookies, metube
 from .banco import ESTADOS, Banco, TransicaoInvalida
 from .cache import Cache
 from .canais import url_base
@@ -42,7 +42,30 @@ def criar_app(cfg=None, banco=None, executor=None, enviar_metube=metube.enviar):
     @app.get("/api/saude")
     def saude():
         return {"ok": True, "rodando": executor.atual, "llm": bool(cfg.llm_url) and not cfg.sem_llm,
-                "metube": metube.ligado(cfg), "metube_modo": cfg.metube_modo if metube.ligado(cfg) else None}
+                "metube": metube.ligado(cfg), "metube_modo": cfg.metube_modo if metube.ligado(cfg) else None,
+                "cookies": cookies.ativo(cfg)[1]}
+
+    # ------------------------------------------------------------ cookies (o conteúdo nunca sai daqui)
+    @app.get("/api/cookies")
+    def estado_cookies():
+        return cookies.estado(cfg)
+
+    @app.put("/api/cookies")
+    async def enviar_cookies(request: Request):
+        conteudo = await request.body()  # corpo cru: o arquivo cookies.txt (sem multipart, sem dependência extra)
+        try:
+            n = cookies.salvar(cfg, conteudo)
+        except cookies.CookiesInvalidos as e:
+            raise HTTPException(400, str(e))
+        return dict(cookies.estado(cfg), cookies=n)
+
+    @app.delete("/api/cookies")
+    def apagar_cookies():
+        if not cookies.apagar(cfg):
+            if cookies.configurado(cfg):
+                raise HTTPException(409, "não há cookies enviados; os de FAREJADOR_COOKIES só saem pelo compose")
+            raise HTTPException(404, "não há cookies enviados")
+        return cookies.estado(cfg)
 
     # ------------------------------------------------------------ sementes
     @app.get("/api/sementes")

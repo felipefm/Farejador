@@ -45,6 +45,7 @@ class Config:
     metube_limite: int = 5            # modo baixar: quantos vídeos do canal
     metube_intervalo: int = 0         # modo assinar: minutos entre checagens (0 = padrão do MeTube)
     metube_timeout: float = 15.0
+    cookies: str = ""                 # cookies.txt (Netscape) para o yt-dlp; o enviado pela tela tem prioridade
     dados: str = "data"               # pasta do SQLite e cache do yt-dlp
     exclude: str = "exclude.txt"
     saida: str = "resultado.json"

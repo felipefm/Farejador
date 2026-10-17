@@ -81,7 +81,9 @@ def _resumo(r, cfg):
         detalhe = ", ".join(f"{n} só {s}" for s, n in f["por_sinal"].items() if n)
         print(f"Fracos (< {cfg.min_sinais} sinais): {f['total']} ({detalhe})"
               + ("" if cfg.mostrar_fracos else " — ocultos, use --mostrar-fracos"))
-    print(f"Requisições: {r['requisicoes']['rede']} na rede, {r['requisicoes']['cache']} do cache")
+    lim = r["requisicoes"]["limitadas"]
+    print(f"Requisições: {r['requisicoes']['rede']} na rede, {r['requisicoes']['cache']} do cache"
+          + (f", {lim} com 429" if lim else "") + f" — cookies: {r['cookies'] or 'não'}")
     lm = r["llm"]
     if lm["ligado"]:
         corte = (f", {lm['reprovados']} abaixo da nota {lm['nota_min']:g} saíram da lista" if lm["nota_min"] else "")

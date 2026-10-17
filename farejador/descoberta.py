@@ -221,6 +221,7 @@ def descobrir(entrada, cfg, coletor, exclusoes=frozenset(), agora=None, log=lamb
     llm = llm if llm is not None and llm.ligado else None
     etapas = Etapas(coletor, llm, relogio)
     base = url_base(entrada)
+    limitadas0, rede0 = coletor.limitadas, coletor.requisicoes  # o Coletor é compartilhado entre sementes
 
     with etapas.medir("canal de referência"):
         log(f"lendo os últimos {cfg.videos_referencia} vídeos de {base}…")
@@ -370,6 +371,13 @@ def descobrir(entrada, cfg, coletor, exclusoes=frozenset(), agora=None, log=lamb
     removidos["inativo"] = len(inativos)
     if llm:
         avisos.extend(llm.avisos)
+    limitadas = coletor.limitadas - limitadas0
+    if limitadas:
+        dica = ("" if coletor.cookies_origem else
+                " Sem cookies: considere enviar um cookies.txt ou aumentar FAREJADOR_PAUSA.")
+        avisos.append(f"YouTube respondeu 429 (limite de requisições) em {limitadas} de "
+                      f"{coletor.requisicoes - rede0} requisições; o yt-dlp contornou quando pôde, mas os "
+                      f"dados dessas podem ter vindo incompletos.{dica}")
 
     def so(c):
         return "menção" if c["mencoes"] else "destaque" if c["destaque"] else "1 busca"
@@ -406,7 +414,8 @@ def descobrir(entrada, cfg, coletor, exclusoes=frozenset(), agora=None, log=lamb
         "avisos": avisos,
         "etapas": etapas.lista,
         "requisicoes": {"rede": coletor.requisicoes, "cache": coletor.acertos_cache,
-                        "avisos_ytdlp": coletor.avisos_ytdlp},
+                        "avisos_ytdlp": coletor.avisos_ytdlp, "limitadas": coletor.limitadas - limitadas0},
+        "cookies": coletor.cookies_origem,
         "candidatos": exportar(fortes),
         "reprovados_llm": exportar(reprovados_llm),
         "candidatos_fracos": exportar(fracos) if cfg.mostrar_fracos else [],

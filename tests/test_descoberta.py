@@ -1,3 +1,4 @@
+import tempfile
 import unittest
 
 from yt_dlp.utils import DownloadError
@@ -158,6 +159,21 @@ class TestDescoberta(unittest.TestCase):
         self.assertIn("NENHUM canal", avisos)
         self.assertIn("1 playlist, 1 video", avisos)
         self.assertIn("não sabe ler", avisos)
+
+    def test_aviso_de_429(self):
+        aviso = "[youtube] r0: Unable to download webpage: HTTP Error 429: Too Many Requests"
+        resp = cenario()
+        resp["https://www.youtube.com/watch?v=r0"]["_avisos"] = [aviso]
+        fab, _ = fabrica(resp)
+        with tempfile.TemporaryDirectory() as tmp:  # sem cookies de verdade de data/
+            cfg = Config(pausa=0, dados=tmp)
+            r = descobrir("@LucianoPiresCafeBrasil", cfg, Coletor(cfg, Cache(":memory:"), fab, dormir=lambda s: None),
+                          agora=AGORA)
+        self.assertEqual(r["requisicoes"]["limitadas"], 1)
+        self.assertIsNone(r["cookies"])
+        texto = " ".join(r["avisos"])
+        self.assertIn("429", texto)
+        self.assertIn("cookies.txt", texto)
 
     def test_etapas(self):
         r, chamadas = self.rodar()

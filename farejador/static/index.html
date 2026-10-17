@@ -67,6 +67,18 @@
     <div id="sementes" class="linha" style="margin-top:10px"></div>
   </section>
 
+  <section aria-labelledby="t-cookies">
+    <h2 id="t-cookies">Cookies do YouTube</h2>
+    <p class="suave" style="margin:0 0 8px">Opcional. Arquivo <code>cookies.txt</code> (formato Netscape), como no MeTube.
+      Ajuda contra o erro 429. Use uma conta secundária: o YouTube pode restringir a conta.</p>
+    <div class="linha">
+      <input id="i-cookies" type="file" accept=".txt,text/plain" aria-label="Arquivo cookies.txt">
+      <button id="b-cookies" class="primario" type="button">Enviar</button>
+      <button id="b-sem-cookies" class="descartar" type="button" hidden>Remover</button>
+    </div>
+    <p id="estado-cookies" class="suave" style="margin:8px 0 0"></p>
+  </section>
+
   <section aria-labelledby="t-desc">
     <h2 id="t-desc">Descoberta</h2>
     <div class="linha">
@@ -115,7 +127,8 @@ async function api(caminho, opcoes = {}) {
 async function carregarSaude() {
   saude = await api("/api/saude");
   const partes = [`LLM ${saude.llm ? "ligado" : "desligado"}`,
-                  `MeTube ${saude.metube ? "ligado (" + saude.metube_modo + ")" : "desligado"}`];
+                  `MeTube ${saude.metube ? "ligado (" + saude.metube_modo + ")" : "desligado"}`,
+                  `cookies ${saude.cookies ? saude.cookies : "não"}`];
   $("#saude").textContent = partes.join(" · ");
   $("#b-rodar").disabled = !!saude.rodando;
   return saude;
@@ -144,6 +157,37 @@ $("#f-semente").addEventListener("submit", async (ev) => {
   } catch (e) { msg.textContent = e.message; msg.hidden = false; }
 });
 
+function mostrarCookies(c, erro) {
+  const p = $("#estado-cookies");
+  p.className = erro ? "erro" : "suave";
+  p.textContent = erro || (c.ativo
+    ? `Em uso: ${c.origem === "enviado" ? "arquivo enviado" : "FAREJADOR_COOKIES"}, ${c.bytes} bytes, ` +
+      `atualizado ${c.modificado.replace("T", " ").slice(0, 16)} UTC.` + (c.aviso ? ` Atenção: ${c.aviso}.` : "")
+    : "Nenhum cookie em uso: o yt-dlp acessa o YouTube anonimamente.");
+  $("#b-sem-cookies").hidden = c.origem !== "enviado";
+}
+
+async function carregarCookies() {
+  try { mostrarCookies(await api("/api/cookies")); } catch (e) { mostrarCookies({}, e.message); }
+}
+
+$("#b-cookies").addEventListener("click", async () => {
+  const arq = $("#i-cookies").files[0];
+  if (!arq) { mostrarCookies({}, "Escolha o arquivo cookies.txt primeiro."); return; }
+  try {
+    const c = await api("/api/cookies", { method: "PUT", body: arq, headers: { "Content-Type": "text/plain" } });
+    $("#i-cookies").value = "";
+    mostrarCookies(c);
+    carregarSaude();
+  } catch (e) { mostrarCookies({}, e.message); }
+});
+
+$("#b-sem-cookies").addEventListener("click", async () => {
+  if (!confirm("Remover os cookies enviados?")) return;
+  try { mostrarCookies(await api("/api/cookies", { method: "DELETE" })); carregarSaude(); }
+  catch (e) { mostrarCookies({}, e.message); }
+});
+
 function mostrarExecucao(e) {
   const alvo = $("#ultima");
   alvo.replaceChildren();
@@ -155,7 +199,9 @@ function mostrarExecucao(e) {
     if (r.erro) { alvo.append(el("p", { className: "erro", textContent: `${semente}: ${r.erro}` })); continue; }
     const p = el("p", { className: "suave", textContent:
       `${semente}: ${r.candidatos} candidatos (${r.novos} novos), ${r.consultas} buscas, ` +
-      `${r.requisicoes.rede} requisições na rede` });
+      `${r.requisicoes.rede} requisições na rede` +
+      (r.requisicoes.limitadas ? `, ${r.requisicoes.limitadas} com 429` : "") +
+      ` · cookies: ${r.cookies || "não"}` });
     alvo.append(p);
     if (r.avisos?.length) alvo.append(el("ul", { className: "avisos" }, ...r.avisos.map((a) => el("li", { textContent: a }))));
   }
@@ -235,6 +281,7 @@ for (const b of document.querySelectorAll(".abas button")) {
 
 (async () => {
   await carregarSaude();
+  carregarCookies();
   carregarSementes();
   carregarCandidatos();
   const recentes = await api("/api/descobertas");

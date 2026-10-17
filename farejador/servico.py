@@ -67,7 +67,7 @@ class Executor:
                 novos = self.banco.gravar_candidatos(semente, r["candidatos"])
                 resumo[semente] = {"candidatos": len(r["candidatos"]), "novos": novos, "avisos": r["avisos"],
                                    "requisicoes": r["requisicoes"], "consultas": len(r["consultas"]),
-                                   "llm": r.get("llm")}
+                                   "llm": r.get("llm"), "cookies": r.get("cookies")}
             if resumo and all("erro" in v for v in resumo.values()):
                 estado, erro = "erro", "nenhuma semente pôde ser lida"
         except BloqueioYouTube as e:

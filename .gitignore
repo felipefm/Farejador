@@ -4,3 +4,7 @@ __pycache__/
 data/
 resultado.json
 exclude.txt
+
+# cookies do YouTube (nunca versionar)
+*cookies*.txt
+.env
