@@ -26,7 +26,9 @@ class Cache:
     def __init__(self, caminho, horas=168, relogio=time.time):
         if str(caminho) != ":memory:":
             Path(caminho).parent.mkdir(parents=True, exist_ok=True)
-        self.db = sqlite3.connect(str(caminho))
+        self.db = sqlite3.connect(str(caminho), timeout=30)
+        if str(caminho) != ":memory:":
+            self.db.execute("PRAGMA journal_mode=WAL")  # servidor lê enquanto a descoberta escreve
         self.db.executescript(ESQUEMA)
         self.validade = horas * 3600
         self.relogio = relogio
