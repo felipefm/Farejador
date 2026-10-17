@@ -26,6 +26,44 @@ class TestBanco(unittest.TestCase):
         self.assertTrue(self.b.remover_semente(a))
         self.assertFalse(self.b.remover_semente(a))
 
+    def test_arquivar_e_remover_do_arquivo(self):
+        self.b.gravar_candidatos("@a", [cand("x"), cand("y"), cand("z")])
+        self.b.decidir("x", "aprovado")
+        self.b.decidir("y", "descartado")
+        self.assertEqual(self.b.arquivar_decididos(), 2)
+        self.assertEqual(self.b.arquivar_decididos(), 0)  # já arquivados
+        self.assertEqual(self.b.candidatos("aprovado"), [])
+        self.assertEqual(self.b.candidatos("descartado"), [])
+        self.assertEqual({c["channel_id"] for c in self.b.candidatos("arquivado")}, {"x", "y"})
+        self.assertEqual([c["channel_id"] for c in self.b.candidatos("novo")], ["z"])
+        self.assertEqual(self.b.urls_aprovadas(), [])
+        self.assertEqual(self.b.urls_aprovadas(arquivados=True), ["https://www.youtube.com/@x"])
+        self.assertTrue({"y", "@y"} & self.b.chaves_decididas())  # arquivado continua na exclusão
+        self.assertEqual(self.b.gravar_candidatos("@b", [cand("y")]), 0)  # e não volta como novo
+        with self.assertRaises(TransicaoInvalida):
+            self.b.remover_arquivado("z")  # novo não é removível
+        with self.assertRaises(KeyError):
+            self.b.remover_arquivado("nada")
+        self.b.remover_arquivado("y")
+        self.assertFalse({"y", "@y"} & self.b.chaves_decididas())
+        self.assertEqual(self.b.gravar_candidatos("@b", [cand("y")]), 1)  # removido pode reaparecer
+        self.assertEqual(self.b.candidato("y")["estado"], "novo")
+
+    def test_migra_banco_antigo(self):
+        import sqlite3
+        p = Path(self.tmp.name) / "antigo.db"
+        db = sqlite3.connect(p)
+        from farejador.banco import ESQUEMA
+        antigo = ESQUEMA.replace("metube_msg TEXT,", "metube_msg TEXT").replace(
+            "arquivado_em TEXT                      -- preenchido = fora das abas, ainda na exclusão", "")
+        db.executescript(antigo)
+        db.execute("INSERT INTO candidatos (channel_id, url, estado, visto_em) VALUES ('x', 'u', 'aprovado', 'h')")
+        db.commit()
+        db.close()
+        b = Banco(p)
+        self.assertEqual(b.arquivar_decididos(), 1)
+        self.assertEqual([c["channel_id"] for c in b.candidatos("arquivado")], ["x"])
+
     def test_descartado_nunca_volta(self):
         self.b.gravar_candidatos("@a", [cand("x", 5), cand("y", 9)])
         self.b.decidir("x", "descartado")

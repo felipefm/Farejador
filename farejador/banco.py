@@ -5,6 +5,8 @@ Regras dos candidatos:
 - descartado é definitivo: nunca volta à lista nem é sobrescrito por uma descoberta nova.
 - aprovados e descartados entram na lista de exclusão das próximas descobertas (não gastam busca
   nem avaliação do LLM de novo).
+- arquivar tira os decididos das abas Aprovados/Descartados (e da exportação), mas eles continuam
+  na exclusão. Remover do arquivo apaga o registro: o canal volta a poder aparecer como novo.
 """
 import json
 import sqlite3
@@ -46,11 +48,14 @@ CREATE TABLE IF NOT EXISTS candidatos (
     visto_em TEXT NOT NULL,
     decidido_em TEXT,
     metube_estado TEXT,                    -- enviado | erro
-    metube_msg TEXT
+    metube_msg TEXT,
+    arquivado_em TEXT                      -- preenchido = fora das abas, ainda na exclusão
 );
 """
+MIGRACOES = {"candidatos": {"arquivado_em": "TEXT"}}  # colunas novas em bancos já existentes
 
 ESTADOS = ("novo", "aprovado", "descartado")
+LISTAS = (*ESTADOS, "arquivado")  # "arquivado" é uma vista: aprovados e descartados arquivados
 TRANSICOES = {("novo", "aprovado"), ("novo", "descartado"), ("aprovado", "descartado")}
 
 
@@ -69,6 +74,11 @@ class Banco:
         with self._conexao() as db:
             db.execute("PRAGMA journal_mode=WAL")
             db.executescript(ESQUEMA)
+            for tabela, colunas in MIGRACOES.items():
+                existentes = {r["name"] for r in db.execute(f"PRAGMA table_info({tabela})")}
+                for nome, tipo in colunas.items():
+                    if nome not in existentes:
+                        db.execute(f"ALTER TABLE {tabela} ADD COLUMN {nome} {tipo}")
 
     @contextmanager
     def _conexao(self):
@@ -163,12 +173,32 @@ class Banco:
         return novos
 
     def candidatos(self, estado="novo"):
-        if estado not in ESTADOS:
+        if estado not in LISTAS:
             raise ValueError(f"estado inválido: {estado!r}")
-        ordem = "score_final DESC, score DESC" if estado == "novo" else "decidido_em DESC"
+        if estado == "arquivado":
+            sql, args = "SELECT * FROM candidatos WHERE arquivado_em IS NOT NULL ORDER BY arquivado_em DESC, nome", ()
+        else:
+            ordem = "score_final DESC, score DESC" if estado == "novo" else "decidido_em DESC"
+            sql = f"SELECT * FROM candidatos WHERE estado = ? AND arquivado_em IS NULL ORDER BY {ordem}"
+            args = (estado,)
         with self._conexao() as db:
-            linhas = db.execute(f"SELECT * FROM candidatos WHERE estado = ? ORDER BY {ordem}", (estado,))
-            return [_candidato(r) for r in linhas]
+            return [_candidato(r) for r in db.execute(sql, args)]
+
+    def arquivar_decididos(self):
+        """Tira aprovados e descartados das abas (continuam na exclusão). Retorna quantos."""
+        with self._conexao() as db:
+            return db.execute("UPDATE candidatos SET arquivado_em = ? WHERE estado != 'novo' "
+                              "AND arquivado_em IS NULL", (agora(),)).rowcount
+
+    def remover_arquivado(self, channel_id):
+        """Apaga um arquivado: sai da exclusão e pode reaparecer como novo numa descoberta."""
+        with self._conexao() as db:
+            r = db.execute("SELECT arquivado_em FROM candidatos WHERE channel_id = ?", (channel_id,)).fetchone()
+            if r is None:
+                raise KeyError(channel_id)
+            if r["arquivado_em"] is None:
+                raise TransicaoInvalida("só candidatos arquivados podem ser removidos")
+            db.execute("DELETE FROM candidatos WHERE channel_id = ?", (channel_id,))
 
     def candidato(self, channel_id):
         with self._conexao() as db:
@@ -201,10 +231,11 @@ class Banco:
             k |= chaves_do_canal(r["channel_id"], r["handle"])
         return k
 
-    def urls_aprovadas(self):
+    def urls_aprovadas(self, arquivados=False):
+        filtro = "" if arquivados else " AND arquivado_em IS NULL"
         with self._conexao() as db:
             return [r["url"] for r in db.execute(
-                "SELECT url FROM candidatos WHERE estado = 'aprovado' ORDER BY decidido_em, nome")]
+                f"SELECT url FROM candidatos WHERE estado = 'aprovado'{filtro} ORDER BY decidido_em, nome")]
 
 
 def _execucao(r):

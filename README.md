@@ -98,6 +98,10 @@ Tem três blocos:
 | `GET /api/candidatos?estado=novo\|aprovado\|descartado` | lista |
 | `POST /api/candidatos/{channel_id}/aprovar` ou `/descartar` | decide (409 em transição proibida) |
 | `POST /api/candidatos/{channel_id}/metube` | reenvia um aprovado ao MeTube |
+| `POST /api/arquivar` | arquiva aprovados e descartados: saem das abas e da exportação, mas continuam excluídos |
+| `GET /api/candidatos?estado=arquivado` | lista o arquivo |
+| `DELETE /api/candidatos/{channel_id}` | remove um arquivado; o canal pode reaparecer numa descoberta |
+| `GET /api/exportar?arquivados=true` | exporta também os aprovados arquivados |
 | `GET` / `PUT` / `DELETE /api/cookies` | estado, envio (corpo cru) e remoção do cookies.txt |
 | `GET /api/exportar` | URLs dos aprovados, uma por linha (texto) |
 | `GET /api/docs` | documentação interativa |

@@ -8,7 +8,7 @@ from fastapi import Body, FastAPI, HTTPException, Request
 from fastapi.responses import FileResponse, PlainTextResponse
 
 from . import cookies, metube
-from .banco import ESTADOS, Banco, TransicaoInvalida
+from .banco import LISTAS, Banco, TransicaoInvalida
 from .cache import Cache
 from .canais import url_base
 from .config import Config
@@ -115,9 +115,22 @@ def criar_app(cfg=None, banco=None, executor=None, enviar_metube=metube.enviar):
     # ------------------------------------------------------------ candidatos
     @app.get("/api/candidatos")
     def listar_candidatos(estado: str = "novo"):
-        if estado not in ESTADOS:
-            raise HTTPException(400, f"estado deve ser um de {', '.join(ESTADOS)}")
+        if estado not in LISTAS:
+            raise HTTPException(400, f"estado deve ser um de {', '.join(LISTAS)}")
         return banco.candidatos(estado)
+
+    @app.post("/api/arquivar")
+    def arquivar():
+        return {"arquivados": banco.arquivar_decididos()}
+
+    @app.delete("/api/candidatos/{cid}", status_code=204)
+    def remover_arquivado(cid: str):
+        try:
+            banco.remover_arquivado(cid)
+        except KeyError:
+            raise HTTPException(404, "candidato não encontrado")
+        except TransicaoInvalida as e:
+            raise HTTPException(409, str(e))
 
     def _decidir(cid, estado):
         try:
@@ -152,8 +165,8 @@ def criar_app(cfg=None, banco=None, executor=None, enviar_metube=metube.enviar):
         return mandar_metube(cid)
 
     @app.get("/api/exportar", response_class=PlainTextResponse)
-    def exportar():
-        urls = banco.urls_aprovadas()
+    def exportar(arquivados: bool = False):
+        urls = banco.urls_aprovadas(arquivados)
         return "\n".join(urls) + ("\n" if urls else "")
 
     return app

@@ -121,6 +121,14 @@ class TestAPI(Base):
         exp = c.get("/api/exportar")
         self.assertEqual(exp.text, "https://www.youtube.com/@x\n")
         self.assertTrue(exp.headers["content-type"].startswith("text/plain"))
+        self.assertEqual(c.delete("/api/candidatos/x").status_code, 409)  # só arquivados saem
+        self.assertEqual(c.post("/api/arquivar").json(), {"arquivados": 2})
+        self.assertEqual(c.get("/api/candidatos?estado=aprovado").json(), [])
+        self.assertEqual({x["channel_id"] for x in c.get("/api/candidatos?estado=arquivado").json()}, {"x", "y"})
+        self.assertEqual(c.get("/api/exportar").text, "")
+        self.assertEqual(c.get("/api/exportar?arquivados=true").text, "https://www.youtube.com/@x\n")
+        self.assertEqual(c.delete("/api/candidatos/y").status_code, 204)
+        self.assertEqual(c.delete("/api/candidatos/y").status_code, 404)
 
     def test_sem_sementes_e_saude(self):
         c = self.cliente()

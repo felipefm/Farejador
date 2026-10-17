@@ -91,12 +91,20 @@
   <section aria-labelledby="t-cand">
     <div class="linha" style="justify-content:space-between">
       <h2 id="t-cand">Candidatos</h2>
-      <a href="/api/exportar" class="suave">Exportar aprovados (URLs)</a>
+      <div class="linha">
+        <a href="/api/exportar" class="suave">Exportar aprovados (URLs)</a>
+        <button id="b-arquivar" type="button" title="Tira aprovados e descartados das abas; eles continuam sem voltar nas descobertas">Arquivar decididos</button>
+      </div>
     </div>
     <div class="abas" role="tablist">
       <button role="tab" data-estado="novo" aria-selected="true">Novos</button>
       <button role="tab" data-estado="aprovado" aria-selected="false">Aprovados</button>
       <button role="tab" data-estado="descartado" aria-selected="false">Descartados</button>
+      <button role="tab" data-estado="arquivado" aria-selected="false">Arquivados</button>
+    </div>
+    <div id="filtro-arquivo" class="linha" style="margin-bottom:10px" hidden>
+      <input id="i-filtro" type="text" placeholder="Buscar no arquivo (nome, @handle, semente)" aria-label="Buscar no arquivo">
+      <span id="conta-arquivo" class="suave"></span>
     </div>
     <div id="candidatos"></div>
   </section>
@@ -254,7 +262,19 @@ function cartao(c) {
       catch (e) { alert(e.message); }
       carregarCandidatos();
     } } });
-  if (c.estado === "novo") botoes.append(acao("Aprovar", "aprovar", "aprovar"), acao("Descartar", "descartar", "descartar"));
+  if (c.arquivado_em) {
+    filhos[0].append(el("span", { className: "estado", style: "margin-left:8px", textContent: c.estado }));
+    filhos.push(el("div", { className: "suave", textContent:
+      `arquivado em ${c.arquivado_em.replace("T", " ").slice(0, 16)} UTC` }));
+    botoes.append(el("button", { type: "button", className: "descartar", textContent: "Remover do arquivo",
+      on: { click: async (ev) => {
+        if (!confirm(`Remover ${c.nome || c.channel_id} do arquivo? Ele poderá aparecer de novo numa descoberta.`)) return;
+        ev.target.disabled = true;
+        try { await api(`/api/candidatos/${encodeURIComponent(c.channel_id)}`, { method: "DELETE" }); }
+        catch (e) { alert(e.message); }
+        carregarCandidatos();
+      } } }));
+  } else if (c.estado === "novo") botoes.append(acao("Aprovar", "aprovar", "aprovar"), acao("Descartar", "descartar", "descartar"));
   if (c.estado === "aprovado") {
     if (saude.metube && c.metube_estado !== "enviado") botoes.append(acao("Enviar ao MeTube", "", "metube"));
     botoes.append(acao("Descartar", "descartar", "descartar"));
@@ -263,13 +283,38 @@ function cartao(c) {
   return el("article", { className: "cand" }, ...filhos);
 }
 
+let listaAtual = [];
+
 async function carregarCandidatos() {
-  const lista = await api(`/api/candidatos?estado=${estadoAba}`);
-  const alvo = $("#candidatos");
-  alvo.replaceChildren(...(lista.length ? lista.map(cartao)
+  listaAtual = await api(`/api/candidatos?estado=${estadoAba}`);
+  $("#filtro-arquivo").hidden = estadoAba !== "arquivado";
+  desenharCandidatos();
+}
+
+function desenharCandidatos() {
+  let lista = listaAtual;
+  if (estadoAba === "arquivado") {
+    const termo = $("#i-filtro").value.trim().toLowerCase();
+    if (termo) lista = lista.filter((c) =>
+      [c.nome, c.handle, c.channel_id, ...c.sementes].some((t) => (t || "").toLowerCase().includes(termo)));
+    $("#conta-arquivo").textContent = `${lista.length} de ${listaAtual.length}`;
+  }
+  $("#candidatos").replaceChildren(...(lista.length ? lista.map(cartao)
     : [el("p", { className: "vazio", textContent: estadoAba === "novo"
         ? "Nenhum candidato novo. Adicione sementes e rode a descoberta." : "Nada aqui ainda." })]));
 }
+
+$("#i-filtro").addEventListener("input", desenharCandidatos);
+
+$("#b-arquivar").addEventListener("click", async () => {
+  if (!confirm("Arquivar todos os aprovados e descartados? Eles saem das abas e da exportação, " +
+               "mas continuam sem voltar nas descobertas.")) return;
+  try {
+    const { arquivados } = await api("/api/arquivar", { method: "POST" });
+    alert(`${arquivados} candidatos arquivados.`);
+  } catch (e) { alert(e.message); }
+  carregarCandidatos();
+});
 
 for (const b of document.querySelectorAll(".abas button")) {
   b.addEventListener("click", () => {
