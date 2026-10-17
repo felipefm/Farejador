@@ -26,7 +26,7 @@ Descobre canais novos do YouTube a partir de um canal de referência. Usa só o 
    A lista principal só aceita candidatos com **2 sinais independentes ou mais**: cada busca distinta conta 1, a menção conta 1 e o destaque conta 1. Os demais aparecem com `--mostrar-fracos`.
 9. **Saída.** Tabela com o motivo de cada score e `resultado.json` com tudo: termos, consultas, diagnóstico das abas, menções, removidos e custo por etapa.
 
-Para respeitar o YouTube: pausa de 2,5 s entre requisições, cache em SQLite (7 dias; `0` = nunca expira), retry com backoff exponencial e parada imediata se aparecer anti-bot ou HTTP 429. Toda requisição e todo erro ficam na tabela `eventos` de `data/farejador.db`.
+Para respeitar o YouTube: pausa de 2,5 s entre requisições, cache em SQLite (7 dias; `0` = nunca expira) e retry com backoff exponencial. Se o anti-bot ou o HTTP 429 fizerem uma requisição falhar duas vezes, a execução para. Quando o yt-dlp contorna o 429 sozinho, a execução continua, mas o resumo informa quantas requisições foram limitadas (ver [Cookies](#cookies-do-youtube-opcional)). Toda requisição e todo erro ficam na tabela `eventos` de `data/farejador.db`.
 
 ## Rodar com Python
 
@@ -50,18 +50,17 @@ A mesma descoberta, com API, tela de aprovação e estado persistente no SQLite 
 ### Docker (homelab)
 
 ```bash
-docker compose up -d --build      # imagem e container "farejador"
+docker compose up -d --build      # imagem farejador:prd, container "farejador"
 # abra http://<ip-do-servidor>:8765
 ```
 
-- **Configuração no `environment:` do compose:** LLM e MeTube ficam lá. Depois de mudar uma variável, rode `docker compose up -d` (recria o container, sem rebuild). As demais `FAREJADOR_*` da seção Configuração podem ser acrescentadas no mesmo bloco.
-
+- **Configuração no `environment:` do compose** (que está no formato do CasaOS): LLM e MeTube ficam lá. Depois de mudar uma variável, rode `docker compose up -d` (recria o container, sem rebuild) ou salve pelo CasaOS. As demais `FAREJADOR_*` da seção Configuração podem ser acrescentadas no mesmo bloco.
 - **Código montado por volume:** o compose monta `./farejador` dentro do container e roda o uvicorn com `--reload`. Salvou um arquivo, o servidor recarrega sozinho. **Rebuild só quando mudar `requirements*.txt` ou o `Dockerfile`.**
   - Recarregar no meio de uma descoberta a interrompe. Ela fica marcada como `interrompida` e basta rodar de novo, porque o que já foi buscado está no cache.
-- **Dados em `./data`:** `farejador.db`, cache do yt-dlp e `bruto/`. A lista de exclusão vira `./data/exclude.txt`. Os arquivos ficam com o dono `1000:1000` (linha `user:` do compose).
+- **Dados em `./data`:** `farejador.db`, cache do yt-dlp, `cookies.txt` (se enviado) e `bruto/`. A lista de exclusão vira `./data/exclude.txt`. Os arquivos ficam com o dono `1000:1000` (linha `user:` do compose).
 - **Recursos:**
   - **Imagem:** ~400 MB, dos quais ~130 MB são do deno. O deno vem pelo extra `yt-dlp[deno]` do pip; o `yt-dlp[default]` traz o `yt-dlp-ejs`. Os dois resolvem o desafio JavaScript do YouTube, sem o qual a leitura de detalhes pode falhar.
-  - **Memória:** `mem_limit: 512m`. Ocioso, o servidor fica na casa das dezenas de MB.
+  - **Memória:** limite de 1 GB (`deploy.resources.limits.memory`, controlado pelo CasaOS). Ocioso, o servidor usa ~85 MB. Não use `mem_limit` junto: com valores diferentes, o compose recusa o arquivo.
   - **Processos:** a descoberta roda numa **thread em segundo plano** do próprio processo, uma por vez, com o progresso gravado no SQLite. Não há fila nem processo extra.
 - **Sem autenticação.** Use só na rede local.
 
@@ -74,39 +73,44 @@ docker compose up -d --build      # imagem e container "farejador"
 
 ### Tela
 
-Tem três blocos:
+Tem quatro blocos:
 
 - **Sementes:** adicionar ou remover canais de referência.
-- **Descoberta:** um botão para rodar todas as sementes, com o progresso ao vivo e o resumo e os avisos de cada semente.
-- **Candidatos:** abas Novos, Aprovados e Descartados. Cada candidato mostra o score, a nota e a justificativa do LLM, o motivo e as sementes em que apareceu, com os botões Aprovar e Descartar. Há um link para exportar os aprovados.
+- **Cookies do YouTube:** enviar ou remover o `cookies.txt` e ver se ele está em uso.
+- **Descoberta:** um botão para rodar todas as sementes, com o progresso ao vivo e o resumo de cada semente: requisições, quantas levaram 429, se usou cookies e os avisos.
+- **Candidatos:** abas Novos, Aprovados, Descartados e Arquivados. Cada candidato mostra o score, a nota e a justificativa do LLM, o motivo e as sementes em que apareceu, com os botões Aprovar e Descartar. No topo ficam "Exportar aprovados", "Inscrever aprovados no MeTube" (só com o MeTube ligado) e "Arquivar decididos". A aba Arquivados tem uma busca e o botão "Remover do arquivo".
+
+Fluxo de uma rodada: rodar a descoberta → aprovar e descartar → inscrever os aprovados no MeTube → arquivar os decididos.
 
 ### Estados dos candidatos
 
 - `novo` pode ir para `aprovado` ou `descartado`; `aprovado` pode ir para `descartado`.
 - **Descartado é definitivo:** nunca volta à lista e nunca é sobrescrito por uma descoberta nova.
 - Aprovados e descartados entram na exclusão das próximas descobertas e não gastam busca nem avaliação do LLM de novo.
-- Um canal que aparece em várias sementes acumula a lista `sementes`. Isso ainda não dá bônus no score (ver múltiplas sementes em `PROXIMOS_PASSOS.md`).
+- **Arquivar** tira aprovados e descartados das abas e da exportação, mas eles **continuam na exclusão**. **Remover do arquivo** apaga o registro: o canal sai da exclusão e pode reaparecer como novo numa descoberta futura.
+- Um canal que aparece em várias sementes acumula a lista `sementes`. Isso ainda não dá bônus no score.
 
 ### API
 
 | Método e rota | O que faz |
 |---|---|
-| `GET /api/saude` | estado: descoberta rodando, LLM e MeTube ligados |
+| `GET /api/saude` | estado: descoberta rodando, LLM, MeTube e cookies |
 | `GET/POST /api/sementes`, `DELETE /api/sementes/{id}` | sementes (`{"canal": "@x"}`) |
 | `POST /api/descobertas` | roda todas as sementes, ou `{"sementes": [...]}`; 202 com `id`, 409 se já houver uma rodando |
 | `GET /api/descobertas`, `GET /api/descobertas/{id}` | histórico e progresso |
 | `GET /api/candidatos?estado=novo\|aprovado\|descartado` | lista |
-| `POST /api/candidatos/{channel_id}/aprovar` ou `/descartar` | decide (409 em transição proibida) |
-| `POST /api/candidatos/{channel_id}/metube` | reenvia um aprovado ao MeTube |
-| `POST /api/arquivar` | arquiva aprovados e descartados: saem das abas e da exportação, mas continuam excluídos |
 | `GET /api/candidatos?estado=arquivado` | lista o arquivo |
+| `POST /api/candidatos/{channel_id}/aprovar` ou `/descartar` | decide (409 em transição proibida) |
+| `POST /api/candidatos/{channel_id}/metube` | envia um aprovado ao MeTube (o botão da tela chama esta rota para cada aprovado) |
+| `POST /api/arquivar` | arquiva aprovados e descartados: saem das abas e da exportação, mas continuam excluídos |
 | `DELETE /api/candidatos/{channel_id}` | remove um arquivado; o canal pode reaparecer numa descoberta |
-| `GET /api/exportar?arquivados=true` | exporta também os aprovados arquivados |
+| `GET /api/exportar` | URLs dos aprovados não arquivados, uma por linha (texto); `?arquivados=true` inclui os arquivados |
 | `GET` / `PUT` / `DELETE /api/cookies` | estado, envio (corpo cru) e remoção do cookies.txt |
-| `GET /api/exportar` | URLs dos aprovados, uma por linha (texto) |
 | `GET /api/docs` | documentação interativa |
 
-### MeTube (opcional, desligado por padrão)
+### MeTube (opcional, desligado por padrão; ligado no compose deste homelab)
+
+O endereço é o IP do host (`http://192.168.0.11:8081`), porque o MeTube está em outra rede Docker e o nome `metube` não resolve a partir deste container.
 
 Com `FAREJADOR_METUBE_URL` preenchida, a tela ganha o botão **"Inscrever aprovados no MeTube"**. Ele envia, um por vez, os aprovados da rodada atual que ainda não foram enviados e mostra o progresso. Os que falharem ficam marcados e têm um botão para reenviar. Com `FAREJADOR_METUBE_AO_APROVAR=true`, o canal já é enviado no momento em que você clica em "Aprovar". O formato foi lido do código do MeTube (`app/main.py` e `app/format_catalog.py`):
 
@@ -198,6 +202,14 @@ Toda opção da CLI também pode vir de uma variável de ambiente `FAREJADOR_<NO
 | `FAREJADOR_LLM_PESO` | 0.5 | peso da nota na ordem final (0 a 1) |
 | `FAREJADOR_LLM_NOTA_MIN` | 0 | nota mínima para ficar na lista principal (0 = sem corte) |
 | `FAREJADOR_SEM_LLM` / `--sem-llm` | false | ignora o LLM mesmo configurado |
+| `FAREJADOR_METUBE_URL` | — | endereço do MeTube; vazio = desligado |
+| `FAREJADOR_METUBE_MODO` | assinar | `assinar` (só vídeos novos) ou `baixar` (os últimos N) |
+| `FAREJADOR_METUBE_FORMATO` / `_QUALIDADE` / `_CODEC` | any / best / — | campos do pedido ao MeTube |
+| `FAREJADOR_METUBE_INTERVALO` | 0 | assinar: minutos entre checagens (0 = padrão do MeTube) |
+| `FAREJADOR_METUBE_LIMITE` | 5 | baixar: quantos vídeos |
+| `FAREJADOR_METUBE_AO_APROVAR` | false | envia já ao clicar em Aprovar |
+| `FAREJADOR_METUBE_TIMEOUT` | 60 | segundos por envio |
+| `FAREJADOR_COOKIES` | — | cookies.txt para o yt-dlp (o enviado pela tela tem prioridade) |
 | `FAREJADOR_DADOS` | data | pasta do SQLite, do cache do yt-dlp e de `bruto/` |
 | `FAREJADOR_EXCLUDE` / `FAREJADOR_SAIDA` | exclude.txt / resultado.json | arquivos |
 
@@ -207,6 +219,7 @@ Caminhos relativos são resolvidos dentro da pasta do projeto. Nem o cache do yt
 
 ```bash
 sqlite3 data/farejador.db "SELECT quando, nivel, tipo, alvo, mensagem FROM eventos WHERE nivel != 'info' ORDER BY id DESC LIMIT 30"
+sqlite3 data/farejador.db "SELECT quando, alvo, mensagem FROM eventos WHERE mensagem LIKE '%429%' ORDER BY id DESC LIMIT 30"
 ```
 
 ## Testes
@@ -228,7 +241,7 @@ Os testes não acessam a rede: o yt-dlp, o LLM e o MeTube são simulados. Para o
 - **Funciona bem para canais de nicho, mal para canais ecléticos.** Contar palavras por vídeo exige que o assunto se repita nos títulos. Em canais de nicho (testados @SERTECMANUTENCAO, de eletrônica, e @DisneyDesenhos) a lista principal saiu no nicho. Em canais ecléticos, cada episódio trata de um assunto, e o que se repete é o nome da série ou do patrocinador.
   - No @LucianoPiresCafeBrasil, "Iscas Intelectuais" e "Videocast Nakata" (Nakata é um patrocinador de autopeças) viraram as principais palavras-chave, e as buscas trouxeram lojas de autopeças.
   - O que ajuda: `--ignorar-termos` com os nomes de série e patrocinador e `FAREJADOR_LLM_NOTA_MIN`. Com esse corte ligado, a saída honesta pode ser "nenhum canal parecido encontrado".
-  - Múltiplas sementes (`@a @b @c`) seriam a correção de fundo; ainda não estão implementadas.
+  - Múltiplas sementes combinadas seriam a correção de fundo. O servidor já roda várias sementes, mas cada uma é avaliada sozinha (sem ranking cruzado), e a CLI aceita uma só.
 - **Bloco de tags repetido em todos os vídeos** ("alta qualidade excelente imagem dublado" no @DisneyDesenhos) vira palavra-chave com contagem máxima. Costuma não ocupar vaga de busca porque as frases vêm antes, mas aparece na lista de palavras-chave.
 - **Palavras-chave só de títulos e tags.** As descrições dos vídeos ficam de fora das palavras-chave: costumam repetir rodapé (patrocínio, redes sociais), que dominaria a contagem. Elas são usadas só para as menções.
 - **Ignorar pelo @handle é agressivo.** Qualquer palavra de 4 ou mais letras contida no handle some, mesmo quando é assunto legítimo (ex.: "brasil" num canal sobre o Brasil). Os nomes de quadros e programas que não estão no handle precisam de `--ignorar-termos`.
@@ -236,11 +249,24 @@ Os testes não acessam a rede: o yt-dlp, o LLM e o MeTube são simulados. Para o
 - **Contagem de sinais.** Cada busca distinta conta 1, a menção conta 1 (não importa em quantos vídeos) e o destaque conta 1. Um canal citado em vários vídeos que não apareceu em nenhuma busca tem 1 sinal e fica entre os fracos. O número de vídeos que o citam pesa no score, não na contagem de sinais.
 - **Proximidade de tamanho não implementada.** O yt-dlp não traz inscritos nos resultados de busca, só na página do canal. Para comparar o tamanho de todos os candidatos seria preciso 1 requisição extra por candidato. Hoje o número só aparece no JSON (`seguidores`) para os canais cuja página já é lida (menções e checagem de atividade).
 - **Destaques: "o canal não tem" vs. "o yt-dlp não expõe".** Só é possível distinguir em parte. A saída diz se a aba falhou, veio vazia ou veio sem canais, e se o yt-dlp avisou que ignorou itens desconhecidos. O HTML cru do YouTube não é salvo (seriam vários MB por página).
-- **Runtime JavaScript.** Versões recentes do yt-dlp querem um runtime JavaScript (deno) para a extração completa de vídeos. Sem ele, a leitura de detalhes pode falhar; nesse caso a saída avisa quantos vídeos tiveram detalhes lidos.
+- **Runtime JavaScript.** O yt-dlp precisa de um runtime JavaScript (deno) para a extração completa de vídeos. O `requirements.txt` já instala o deno pelo pip, no `.venv` e na imagem. Se ele faltar, a leitura de detalhes pode falhar, e a saída avisa quantos vídeos tiveram detalhes lidos.
 - **Formato da resposta do LLM.** Supõe-se o formato `/v1/chat/completions` da OpenAI, com o JSON em texto dentro de `choices[0].message.content`.
   - O pedido usa `response_format: {"type": "json_schema", "json_schema": {"name", "strict": true, "schema"}}` (structured output do LM Studio). Se o servidor responder HTTP 400, o pedido é repetido sem `response_format`.
   - O LM Studio avisa que modelos abaixo de ~7B nem sempre obedecem ao schema, e o gemma-4-e4b é um deles. Por isso a resposta é sempre validada aqui: o parser tolera blocos `<think>…</think>`, cercas \`\`\`json e texto antes ou depois do objeto.
   - Consultas: `{"consultas": [string]}`. Nota: `{"nota": número de 0 a 10, "justificativa": string}`. Nota em string (`"7"`) é rejeitada.
 - **Sem mensagem `system`.** Tudo vai numa única mensagem `user`, porque alguns templates (Gemma) recusam o papel `system`. A temperatura é fixa em 0,2.
-- **A nota do LLM é opinião de um modelo pequeno.** Ela só reordena: não remove ninguém da lista e não substitui os sinais determinísticos.
+- **A nota do LLM é opinião de um modelo pequeno.** Por padrão, ela só reordena e não substitui os sinais determinísticos. Só tira alguém da lista se `FAREJADOR_LLM_NOTA_MIN` estiver ligado.
 - **Servidor sem autenticação e uma descoberta por vez.** Pensado para uma pessoa na rede local.
+- **Palavras quase iguais contam separado.** Um erro de digitação nos títulos ("minnie" e "minnue" no @cartoonpopz) vira uma segunda busca quase idêntica, e a mesma busca acaba contando dois sinais.
+
+## Ideias não implementadas
+
+Levantadas nos testes; nenhuma foi decidida:
+
+- Juntar palavras-chave quase iguais (minnie/minnue).
+- Detectar nomes de série e de patrocinador (Café Brasil) e blocos de tags presentes em todos os vídeos (Disney).
+- Penalidade de tamanho (candidato muito maior que a referência).
+- Prompt do LLM com teto de nota para canais generalistas; `FAREJADOR_LLM_AVALIAR` 20.
+- Menção valendo 2 sinais.
+- Ranking cruzado entre sementes (bônus para quem aparece em várias).
+- Desarquivar um canal sem apagá-lo; favicon na tela.
