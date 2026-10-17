@@ -1,0 +1,248 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Farejador</title>
+<style>
+  :root {
+    --fundo: #f6f7f9; --cartao: #ffffff; --texto: #1d2126; --suave: #5d6670; --borda: #dde1e6;
+    --acento: #2563eb; --ok: #15803d; --ruim: #b91c1c; --aviso: #a16207; --chip: #eef1f5;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --fundo: #14171b; --cartao: #1c2026; --texto: #e6e9ed; --suave: #9aa3ad; --borda: #2e343c;
+      --acento: #60a5fa; --ok: #4ade80; --ruim: #f87171; --aviso: #facc15; --chip: #262c34;
+    }
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--fundo); color: var(--texto);
+         font: 15px/1.45 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; }
+  main { max-width: 980px; margin: 0 auto; padding: 16px; }
+  header { display: flex; flex-wrap: wrap; align-items: baseline; gap: 8px 16px; margin-bottom: 16px; }
+  h1 { margin: 0; font-size: 1.5rem; }
+  h2 { margin: 0 0 10px; font-size: 1.05rem; }
+  section { background: var(--cartao); border: 1px solid var(--borda); border-radius: 10px;
+            padding: 14px 16px; margin-bottom: 14px; }
+  .linha { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+  .suave { color: var(--suave); font-size: .9rem; }
+  input[type=text] { flex: 1 1 220px; min-width: 0; padding: 8px 10px; border: 1px solid var(--borda);
+                     border-radius: 7px; background: var(--fundo); color: var(--texto); font: inherit; }
+  button { padding: 7px 12px; border-radius: 7px; border: 1px solid var(--borda); background: var(--chip);
+           color: var(--texto); font: inherit; cursor: pointer; }
+  button.primario { background: var(--acento); border-color: var(--acento); color: #fff; }
+  button.aprovar { border-color: var(--ok); color: var(--ok); }
+  button.descartar { border-color: var(--ruim); color: var(--ruim); }
+  button:disabled { opacity: .5; cursor: default; }
+  .chip { display: inline-flex; align-items: center; gap: 6px; background: var(--chip); border-radius: 999px;
+          padding: 3px 4px 3px 10px; font-size: .9rem; }
+  .chip button { padding: 0 7px; border: 0; background: transparent; color: var(--suave); }
+  .estado { font-size: .85rem; padding: 2px 8px; border-radius: 999px; background: var(--chip); }
+  .abas { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 10px; }
+  .abas button[aria-selected=true] { background: var(--acento); border-color: var(--acento); color: #fff; }
+  .cand { border-top: 1px solid var(--borda); padding: 10px 0; }
+  .cand:first-of-type { border-top: 0; }
+  .cand a { color: var(--acento); font-weight: 600; text-decoration: none; overflow-wrap: anywhere; }
+  .nota { font-weight: 600; }
+  .motivo { color: var(--suave); font-size: .88rem; overflow-wrap: anywhere; }
+  .erro { color: var(--ruim); white-space: pre-wrap; overflow-wrap: anywhere; }
+  .avisos { color: var(--aviso); font-size: .88rem; margin: 4px 0 0; padding-left: 18px; }
+  .vazio { color: var(--suave); padding: 8px 0; }
+</style>
+</head>
+<body>
+<main>
+  <header>
+    <h1>Farejador</h1>
+    <span id="saude" class="suave"></span>
+  </header>
+
+  <section aria-labelledby="t-sementes">
+    <h2 id="t-sementes">Canais de referência (sementes)</h2>
+    <form id="f-semente" class="linha">
+      <input id="i-semente" type="text" placeholder="@handle, ID UC… ou URL do canal" aria-label="Canal de referência" required>
+      <button class="primario" type="submit">Adicionar</button>
+    </form>
+    <p id="msg-semente" class="erro" hidden></p>
+    <div id="sementes" class="linha" style="margin-top:10px"></div>
+  </section>
+
+  <section aria-labelledby="t-desc">
+    <h2 id="t-desc">Descoberta</h2>
+    <div class="linha">
+      <button id="b-rodar" class="primario" type="button">Rodar descoberta</button>
+      <span id="progresso" class="suave" aria-live="polite"></span>
+    </div>
+    <div id="ultima" style="margin-top:8px"></div>
+  </section>
+
+  <section aria-labelledby="t-cand">
+    <div class="linha" style="justify-content:space-between">
+      <h2 id="t-cand">Candidatos</h2>
+      <a href="/api/exportar" class="suave">Exportar aprovados (URLs)</a>
+    </div>
+    <div class="abas" role="tablist">
+      <button role="tab" data-estado="novo" aria-selected="true">Novos</button>
+      <button role="tab" data-estado="aprovado" aria-selected="false">Aprovados</button>
+      <button role="tab" data-estado="descartado" aria-selected="false">Descartados</button>
+    </div>
+    <div id="candidatos"></div>
+  </section>
+</main>
+
+<script>
+const $ = (s) => document.querySelector(s);
+let estadoAba = "novo", saude = {}, vigiando = null;
+
+function el(tag, props = {}, ...filhos) {
+  const n = document.createElement(tag);
+  for (const [k, v] of Object.entries(props)) {
+    if (k === "on") for (const [ev, fn] of Object.entries(v)) n.addEventListener(ev, fn);
+    else if (k in n) n[k] = v; else n.setAttribute(k, v);
+  }
+  for (const f of filhos) if (f != null) n.append(f);
+  return n;
+}
+
+async function api(caminho, opcoes = {}) {
+  const r = await fetch(caminho, { headers: { "Content-Type": "application/json" }, ...opcoes });
+  if (r.status === 204) return null;
+  const dados = r.headers.get("content-type")?.includes("json") ? await r.json() : await r.text();
+  if (!r.ok) throw new Error(dados?.detail || dados || `HTTP ${r.status}`);
+  return dados;
+}
+
+async function carregarSaude() {
+  saude = await api("/api/saude");
+  const partes = [`LLM ${saude.llm ? "ligado" : "desligado"}`,
+                  `MeTube ${saude.metube ? "ligado (" + saude.metube_modo + ")" : "desligado"}`];
+  $("#saude").textContent = partes.join(" · ");
+  $("#b-rodar").disabled = !!saude.rodando;
+  return saude;
+}
+
+async function carregarSementes() {
+  const lista = await api("/api/sementes");
+  const alvo = $("#sementes");
+  alvo.replaceChildren();
+  if (!lista.length) alvo.append(el("span", { className: "suave", textContent: "Nenhuma semente ainda." }));
+  for (const s of lista) {
+    alvo.append(el("span", { className: "chip" }, s.entrada,
+      el("button", { type: "button", title: "Remover", "aria-label": `Remover ${s.entrada}`, textContent: "×",
+        on: { click: async () => { await api(`/api/sementes/${s.id}`, { method: "DELETE" }); carregarSementes(); } } })));
+  }
+}
+
+$("#f-semente").addEventListener("submit", async (ev) => {
+  ev.preventDefault();
+  const msg = $("#msg-semente");
+  msg.hidden = true;
+  try {
+    await api("/api/sementes", { method: "POST", body: JSON.stringify({ canal: $("#i-semente").value }) });
+    $("#i-semente").value = "";
+    carregarSementes();
+  } catch (e) { msg.textContent = e.message; msg.hidden = false; }
+});
+
+function mostrarExecucao(e) {
+  const alvo = $("#ultima");
+  alvo.replaceChildren();
+  if (!e) return;
+  $("#progresso").textContent = e.estado === "rodando" ? (e.progresso || "começando…")
+    : `Última: #${e.id} ${e.estado} (${(e.fim || e.inicio).replace("T", " ").slice(0, 16)} UTC)`;
+  if (e.erro) alvo.append(el("p", { className: "erro", textContent: e.erro }));
+  for (const [semente, r] of Object.entries(e.resumo || {})) {
+    if (r.erro) { alvo.append(el("p", { className: "erro", textContent: `${semente}: ${r.erro}` })); continue; }
+    const p = el("p", { className: "suave", textContent:
+      `${semente}: ${r.candidatos} candidatos (${r.novos} novos), ${r.consultas} buscas, ` +
+      `${r.requisicoes.rede} requisições na rede` });
+    alvo.append(p);
+    if (r.avisos?.length) alvo.append(el("ul", { className: "avisos" }, ...r.avisos.map((a) => el("li", { textContent: a }))));
+  }
+}
+
+async function vigiar(id) {
+  clearInterval(vigiando);
+  const passo = async () => {
+    const e = await api(`/api/descobertas/${id}`);
+    mostrarExecucao(e);
+    if (e.estado !== "rodando") {
+      clearInterval(vigiando);
+      vigiando = null;
+      await carregarSaude();
+      carregarCandidatos();
+    }
+  };
+  await passo();
+  if ((await api(`/api/descobertas/${id}`)).estado === "rodando") vigiando = setInterval(passo, 3000);
+}
+
+$("#b-rodar").addEventListener("click", async () => {
+  try {
+    const { id } = await api("/api/descobertas", { method: "POST", body: "{}" });
+    $("#b-rodar").disabled = true;
+    vigiar(id);
+  } catch (e) { $("#progresso").textContent = e.message; }
+});
+
+function cartao(c) {
+  const titulo = el("a", { href: c.url, target: "_blank", rel: "noopener", textContent: c.nome || c.channel_id });
+  const ident = el("span", { className: "suave", textContent: ` ${c.handle || c.channel_id}` });
+  const numeros = [];
+  if (c.score_final != null) numeros.push(`final ${Number(c.score_final).toFixed(1)}`);
+  if (c.score != null) numeros.push(`score ${c.score}`);
+  if (c.seguidores != null) numeros.push(`${c.seguidores.toLocaleString("pt-BR")} inscritos`);
+  numeros.push(`sementes: ${c.sementes.join(", ")}`);
+  const filhos = [el("div", {}, titulo, ident), el("div", { className: "suave", textContent: numeros.join(" · ") })];
+  if (c.nota_llm != null)
+    filhos.push(el("div", {}, el("span", { className: "nota", textContent: `LLM ${c.nota_llm}/10 ` }), c.justificativa_llm || ""));
+  if (c.motivo) filhos.push(el("div", { className: "motivo", textContent: c.motivo }));
+  if (c.metube_estado)
+    filhos.push(el("div", { className: c.metube_estado === "erro" ? "erro" : "suave",
+                            textContent: `MeTube: ${c.metube_estado}${c.metube_msg ? " — " + c.metube_msg : ""}` }));
+  const botoes = el("div", { className: "linha", style: "margin-top:6px" });
+  const acao = (rotulo, classe, rota) => el("button", { type: "button", className: classe, textContent: rotulo,
+    on: { click: async (ev) => {
+      ev.target.disabled = true;
+      try { await api(`/api/candidatos/${encodeURIComponent(c.channel_id)}/${rota}`, { method: "POST" }); }
+      catch (e) { alert(e.message); }
+      carregarCandidatos();
+    } } });
+  if (c.estado === "novo") botoes.append(acao("Aprovar", "aprovar", "aprovar"), acao("Descartar", "descartar", "descartar"));
+  if (c.estado === "aprovado") {
+    if (saude.metube && c.metube_estado !== "enviado") botoes.append(acao("Enviar ao MeTube", "", "metube"));
+    botoes.append(acao("Descartar", "descartar", "descartar"));
+  }
+  if (botoes.childElementCount) filhos.push(botoes);
+  return el("article", { className: "cand" }, ...filhos);
+}
+
+async function carregarCandidatos() {
+  const lista = await api(`/api/candidatos?estado=${estadoAba}`);
+  const alvo = $("#candidatos");
+  alvo.replaceChildren(...(lista.length ? lista.map(cartao)
+    : [el("p", { className: "vazio", textContent: estadoAba === "novo"
+        ? "Nenhum candidato novo. Adicione sementes e rode a descoberta." : "Nada aqui ainda." })]));
+}
+
+for (const b of document.querySelectorAll(".abas button")) {
+  b.addEventListener("click", () => {
+    estadoAba = b.dataset.estado;
+    for (const o of document.querySelectorAll(".abas button")) o.setAttribute("aria-selected", o === b);
+    carregarCandidatos();
+  });
+}
+
+(async () => {
+  await carregarSaude();
+  carregarSementes();
+  carregarCandidatos();
+  const recentes = await api("/api/descobertas");
+  if (recentes.length) {
+    mostrarExecucao(recentes[0]);
+    if (recentes[0].estado === "rodando") vigiar(recentes[0].id);
+  }
+})();
+</script>
+</body>
+</html>

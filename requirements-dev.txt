@@ -1,0 +1,2 @@
+# só para os testes automatizados (TestClient do FastAPI)
+httpx==0.28.1

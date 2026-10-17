@@ -1,0 +1,3 @@
+# servidor da fase 2 (API + tela). Sem uvicorn[standard]: o --reload usa polling, sem dependências extras.
+fastapi==0.143.3
+uvicorn==0.54.0
