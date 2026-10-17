@@ -39,6 +39,12 @@ class Config:
     llm_peso: float = 0.5             # peso da nota do LLM na ordem final (0 = ignora, 1 = só LLM)
     llm_nota_min: float = 0           # nota abaixo disso tira o candidato da lista principal (0 = sem corte)
     sem_llm: bool = False             # força o modo determinístico mesmo com LLM configurado
+    metube_url: str = ""              # ex.: http://192.168.0.10:8081 (vazio = adaptador desligado)
+    metube_modo: str = "assinar"      # assinar (só vídeos novos, /subscribe) | baixar (/add, até metube_limite)
+    metube_qualidade: str = "best"    # best, 1080, 720…
+    metube_limite: int = 5            # modo baixar: quantos vídeos do canal
+    metube_intervalo: int = 0         # modo assinar: minutos entre checagens (0 = padrão do MeTube)
+    metube_timeout: float = 15.0
     dados: str = "data"               # pasta do SQLite e cache do yt-dlp
     exclude: str = "exclude.txt"
     saida: str = "resultado.json"
