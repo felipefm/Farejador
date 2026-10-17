@@ -67,7 +67,7 @@ Os títulos dos candidatos (nos resultados de busca e nas abas Vídeos), que vã
 
 - [x] FastAPI + SQLite (`/data`), tela "Farejador", API de sementes/descobertas/candidatos/exportação.
 - [x] Descoberta em thread de fundo (uma por vez); reinício no meio marca a execução como `interrompida`.
-- [x] Docker: `python:3.12-slim` com deno (via `yt-dlp[default,deno]`), código montado com `--reload`, compose e `.env.example`.
+- [x] Docker: `python:3.12-slim` com deno (via `yt-dlp[default,deno]`), código montado com `--reload`, compose com a configuração no `environment:`.
 - [x] MeTube opcional: `assinar` (`/subscribe`, padrão) ou `baixar` (`/add` com limite).
 - [ ] Você sobe com `docker compose up -d --build`, roda uma descoberta pela tela e testa aprovar/descartar (e o MeTube, se quiser).
 

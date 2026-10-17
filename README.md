@@ -50,14 +50,15 @@ A mesma descoberta, com API, tela de aprovação e estado persistente no SQLite 
 ### Docker (homelab)
 
 ```bash
-cp .env.example .env              # opcional: sem .env valem os padrões
 docker compose up -d --build      # imagem e container "farejador"
 # abra http://<ip-do-servidor>:8765
 ```
 
+- **Configuração no `environment:` do compose:** LLM e MeTube ficam lá. Depois de mudar uma variável, rode `docker compose up -d` (recria o container, sem rebuild). As demais `FAREJADOR_*` da seção Configuração podem ser acrescentadas no mesmo bloco.
+
 - **Código montado por volume:** o compose monta `./farejador` dentro do container e roda o uvicorn com `--reload`. Salvou um arquivo, o servidor recarrega sozinho. **Rebuild só quando mudar `requirements*.txt` ou o `Dockerfile`.**
   - Recarregar no meio de uma descoberta a interrompe. Ela fica marcada como `interrompida` e basta rodar de novo, porque o que já foi buscado está no cache.
-- **Dados em `./data`:** `farejador.db`, cache do yt-dlp e `bruto/`. A lista de exclusão vira `./data/exclude.txt`. Os arquivos ficam com o dono `FAREJADOR_UID:FAREJADOR_GID` (padrão 1000:1000).
+- **Dados em `./data`:** `farejador.db`, cache do yt-dlp e `bruto/`. A lista de exclusão vira `./data/exclude.txt`. Os arquivos ficam com o dono `1000:1000` (linha `user:` do compose).
 - **Recursos:**
   - **Imagem:** ~400 MB, dos quais ~130 MB são do deno. O deno vem pelo extra `yt-dlp[deno]` do pip; o `yt-dlp[default]` traz o `yt-dlp-ejs`. Os dois resolvem o desafio JavaScript do YouTube, sem o qual a leitura de detalhes pode falhar.
   - **Memória:** `mem_limit: 512m`. Ocioso, o servidor fica na casa das dezenas de MB.
