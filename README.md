@@ -78,7 +78,7 @@ Tem quatro blocos:
 - **Sementes:** adicionar ou remover canais de referência.
 - **Cookies do YouTube:** enviar ou remover o `cookies.txt` e ver se ele está em uso.
 - **Descoberta:** um botão para rodar todas as sementes, com o progresso ao vivo e o resumo de cada semente: requisições, quantas levaram 429, se usou cookies e os avisos.
-- **Candidatos:** abas Novos, Aprovados, Descartados e Arquivados. Cada candidato mostra o score, a nota e a justificativa do LLM, o motivo e as sementes em que apareceu, com os botões Aprovar e Descartar (na aba Descartados, Aprovar desfaz um descarte por engano). No topo ficam "Exportar aprovados", "Inscrever aprovados no MeTube" (só com o MeTube ligado) e "Arquivar decididos". A aba Arquivados tem uma busca e o botão "Remover do arquivo".
+- **Candidatos:** abas Novos, Aprovados, Descartados e Arquivados. Cada candidato mostra o score, a nota e a justificativa do LLM, o motivo e as sementes em que apareceu, com os botões Aprovar e Descartar (na aba Descartados, Aprovar desfaz um descarte por engano). No topo ficam "Exportar aprovados", "Inscrever aprovados no MeTube" (só com o MeTube ligado) e "Arquivar decididos". Todas as abas têm uma busca por nome, @handle ou semente; a aba Arquivados tem o botão "Remover do arquivo".
 
 Fluxo de uma rodada: rodar a descoberta → aprovar e descartar → inscrever os aprovados no MeTube → arquivar os decididos.
 

@@ -24,6 +24,7 @@
   h2 { margin: 0 0 10px; font-size: 1.05rem; }
   section { background: var(--cartao); border: 1px solid var(--borda); border-radius: 10px;
             padding: 14px 16px; margin-bottom: 14px; }
+  [hidden] { display: none !important; }  /* senão o display de .linha etc. vence o hidden */
   .linha { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
   .suave { color: var(--suave); font-size: .9rem; }
   input[type=text] { flex: 1 1 220px; min-width: 0; padding: 8px 10px; border: 1px solid var(--borda);
@@ -104,9 +105,9 @@
       <button role="tab" data-estado="arquivado" aria-selected="false">Arquivados</button>
     </div>
     <p id="msg-metube" class="suave" aria-live="polite" hidden></p>
-    <div id="filtro-arquivo" class="linha" style="margin-bottom:10px" hidden>
-      <input id="i-filtro" type="text" placeholder="Buscar no arquivo (nome, @handle, semente)" aria-label="Buscar no arquivo">
-      <span id="conta-arquivo" class="suave"></span>
+    <div id="filtro" class="linha" style="margin-bottom:10px">
+      <input id="i-filtro" type="text" placeholder="Buscar nesta aba (nome, @handle, semente)" aria-label="Buscar nesta aba">
+      <span id="conta-filtro" class="suave"></span>
     </div>
     <div id="candidatos"></div>
   </section>
@@ -297,20 +298,17 @@ let listaAtual = [];
 
 async function carregarCandidatos() {
   listaAtual = await api(`/api/candidatos?estado=${estadoAba}`);
-  $("#filtro-arquivo").hidden = estadoAba !== "arquivado";
   desenharCandidatos();
 }
 
 function desenharCandidatos() {
   let lista = listaAtual;
-  if (estadoAba === "arquivado") {
-    const termo = $("#i-filtro").value.trim().toLowerCase();
-    if (termo) lista = lista.filter((c) =>
-      [c.nome, c.handle, c.channel_id, ...c.sementes].some((t) => (t || "").toLowerCase().includes(termo)));
-    $("#conta-arquivo").textContent = `${lista.length} de ${listaAtual.length}`;
-  }
+  const termo = $("#i-filtro").value.trim().toLowerCase();
+  if (termo) lista = lista.filter((c) =>
+    [c.nome, c.handle, c.channel_id, ...(c.sementes || [])].some((t) => (t || "").toLowerCase().includes(termo)));
+  $("#conta-filtro").textContent = termo ? `${lista.length} de ${listaAtual.length}` : "";
   $("#candidatos").replaceChildren(...(lista.length ? lista.map(cartao)
-    : [el("p", { className: "vazio", textContent: estadoAba === "novo"
+    : [el("p", { className: "vazio", textContent: termo ? "Nada com esse termo nesta aba." : estadoAba === "novo"
         ? "Nenhum candidato novo. Adicione sementes e rode a descoberta." : "Nada aqui ainda." })]));
 }
 
