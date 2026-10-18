@@ -78,14 +78,14 @@ Tem quatro blocos:
 - **Sementes:** adicionar ou remover canais de referência.
 - **Cookies do YouTube:** enviar ou remover o `cookies.txt` e ver se ele está em uso.
 - **Descoberta:** um botão para rodar todas as sementes, com o progresso ao vivo e o resumo de cada semente: requisições, quantas levaram 429, se usou cookies e os avisos.
-- **Candidatos:** abas Novos, Aprovados, Descartados e Arquivados. Cada candidato mostra o score, a nota e a justificativa do LLM, o motivo e as sementes em que apareceu, com os botões Aprovar e Descartar. No topo ficam "Exportar aprovados", "Inscrever aprovados no MeTube" (só com o MeTube ligado) e "Arquivar decididos". A aba Arquivados tem uma busca e o botão "Remover do arquivo".
+- **Candidatos:** abas Novos, Aprovados, Descartados e Arquivados. Cada candidato mostra o score, a nota e a justificativa do LLM, o motivo e as sementes em que apareceu, com os botões Aprovar e Descartar (na aba Descartados, Aprovar desfaz um descarte por engano). No topo ficam "Exportar aprovados", "Inscrever aprovados no MeTube" (só com o MeTube ligado) e "Arquivar decididos". A aba Arquivados tem uma busca e o botão "Remover do arquivo".
 
 Fluxo de uma rodada: rodar a descoberta → aprovar e descartar → inscrever os aprovados no MeTube → arquivar os decididos.
 
 ### Estados dos candidatos
 
-- `novo` pode ir para `aprovado` ou `descartado`; `aprovado` pode ir para `descartado`.
-- **Descartado é definitivo:** nunca volta à lista e nunca é sobrescrito por uma descoberta nova.
+- `novo` pode ir para `aprovado` ou `descartado`; `aprovado` e `descartado` podem trocar entre si enquanto não forem arquivados.
+- **Descartado nunca volta como novo** e nunca é sobrescrito por uma descoberta nova; só sai dali se você aprovar.
 - Aprovados e descartados entram na exclusão das próximas descobertas e não gastam busca nem avaliação do LLM de novo.
 - **Arquivar** tira aprovados e descartados das abas e da exportação, mas eles **continuam na exclusão**. **Remover do arquivo** apaga o registro: o canal sai da exclusão e pode reaparecer como novo numa descoberta futura.
 - **Várias sementes:** um canal que aparece em mais de uma semente acumula a lista `sementes` e sobe na lista de novos. A ordem é `final + FAREJADOR_BONUS_SEMENTE × (sementes − 1)` (padrão 3, na escala 0–10 do final), e o cartão mostra o bônus. Fica guardada a versão de maior score entre as sementes.

@@ -286,10 +286,9 @@ function cartao(c) {
         carregarCandidatos();
       } } }));
   } else if (c.estado === "novo") botoes.append(acao("Aprovar", "aprovar", "aprovar"), acao("Descartar", "descartar", "descartar"));
-  if (c.estado === "aprovado") {
-    if (saude.metube && c.metube_estado !== "enviado") botoes.append(acao("Enviar ao MeTube", "", "metube"));
-    botoes.append(acao("Descartar", "descartar", "descartar"));
-  }
+  if (c.estado === "aprovado" && saude.metube && c.metube_estado !== "enviado") botoes.append(acao("Enviar ao MeTube", "", "metube"));
+  if (!c.arquivado_em && c.estado === "aprovado") botoes.append(acao("Descartar", "descartar", "descartar"));
+  if (!c.arquivado_em && c.estado === "descartado") botoes.append(acao("Aprovar", "aprovar", "aprovar"));
   if (botoes.childElementCount) filhos.push(botoes);
   return el("article", { className: "cand" }, ...filhos);
 }

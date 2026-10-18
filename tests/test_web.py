@@ -144,7 +144,6 @@ class TestAPI(Base):
         self.assertEqual({x["channel_id"] for x in c.get("/api/candidatos").json()}, {"x", "y"})
         self.assertEqual(c.post("/api/candidatos/x/aprovar").json(), {"estado": "aprovado", "metube": None})
         self.assertEqual(c.post("/api/candidatos/y/descartar").status_code, 200)
-        self.assertEqual(c.post("/api/candidatos/y/aprovar").status_code, 409)  # descartado é definitivo
         self.assertEqual(c.post("/api/candidatos/nada/aprovar").status_code, 404)
         self.assertEqual([x["channel_id"] for x in c.get("/api/candidatos?estado=aprovado").json()], ["x"])
         self.assertEqual(c.get("/api/candidatos?estado=xyz").status_code, 400)

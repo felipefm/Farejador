@@ -57,7 +57,8 @@ MIGRACOES = {"candidatos": {"arquivado_em": "TEXT"}}  # colunas novas em bancos 
 
 ESTADOS = ("novo", "aprovado", "descartado")
 LISTAS = (*ESTADOS, "arquivado")  # "arquivado" é uma vista: aprovados e descartados arquivados
-TRANSICOES = {("novo", "aprovado"), ("novo", "descartado"), ("aprovado", "descartado")}
+TRANSICOES = {("novo", "aprovado"), ("novo", "descartado"), ("aprovado", "descartado"),
+              ("descartado", "aprovado")}  # desfaz um descarte por engano
 
 
 def agora():
@@ -227,11 +228,14 @@ class Banco:
 
     def decidir(self, channel_id, estado):
         with self._conexao() as db:
-            r = db.execute("SELECT estado FROM candidatos WHERE channel_id = ?", (channel_id,)).fetchone()
+            r = db.execute("SELECT estado, arquivado_em FROM candidatos WHERE channel_id = ?",
+                           (channel_id,)).fetchone()
             if r is None:
                 raise KeyError(channel_id)
             if r["estado"] == estado:
                 return  # idempotente
+            if r["arquivado_em"]:
+                raise TransicaoInvalida("candidato arquivado: remova do arquivo antes")
             if (r["estado"], estado) not in TRANSICOES:
                 raise TransicaoInvalida(f"{r['estado']} -> {estado} não é permitido")
             db.execute("UPDATE candidatos SET estado = ?, decidido_em = ? WHERE channel_id = ?",

@@ -74,9 +74,13 @@ class TestBanco(unittest.TestCase):
         self.assertEqual((x["estado"], x["score"], x["motivo"]), ("descartado", 5, None))  # não sobrescreve
         self.assertEqual(x["sementes"], ["@a", "@b"])  # mas registra que apareceu de novo
         with self.assertRaises(TransicaoInvalida):
-            self.b.decidir("x", "aprovado")
-        with self.assertRaises(TransicaoInvalida):
             self.b.decidir("x", "novo")
+        self.b.decidir("x", "aprovado")  # desfaz o descarte por engano
+        self.assertEqual(self.b.candidato("x")["estado"], "aprovado")
+        self.b.decidir("x", "descartado")
+        self.b.arquivar_decididos()
+        with self.assertRaises(TransicaoInvalida):
+            self.b.decidir("x", "aprovado")  # arquivado: só removendo do arquivo
 
     def test_transicoes(self):
         self.b.gravar_candidatos("@a", [cand("x")])
