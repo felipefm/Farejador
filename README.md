@@ -82,6 +82,20 @@ Tem quatro blocos:
 
 Fluxo de uma rodada: rodar a descoberta → aprovar e descartar → inscrever os aprovados no MeTube → arquivar os decididos.
 
+### Conceitos: abas e botões
+
+| | O que é | Volta nas próximas descobertas? |
+|---|---|---|
+| **Novos** | Fila do que a descoberta encontrou e você ainda não avaliou, do mais promissor para o menos (score final + bônus por aparecer em mais de uma semente). Uma descoberta nova só acrescenta ou atualiza; nada sai daqui sozinho. | Sim: se aparecer de novo, ganha a semente nova e pode subir. |
+| **Aprovados** | Canais que você quer acompanhar. São a fonte do "Exportar aprovados" e do "Inscrever aprovados no MeTube". Dá para descartar depois. | Não: ficam na exclusão. |
+| **Descartados** | Canais que você não quer. Não voltam como novos nem são sobrescritos por descobertas futuras. Se foi engano, o botão **Aprovar** do cartão leva o canal para Aprovados. | Não: ficam na exclusão. |
+| **Arquivados** | Aprovados e descartados de rodadas anteriores, guardados fora das outras abas para elas ficarem limpas. O cartão mostra se era aprovado ou descartado. **Remover do arquivo** apaga o registro: o canal deixa de ser excluído e pode reaparecer como novo. | Não, enquanto estiverem no arquivo. |
+
+- **Arquivar decididos:** move de uma vez todos os Aprovados e Descartados para Arquivados. Use ao terminar uma rodada (depois de exportar ou inscrever no MeTube) para começar a próxima com as abas vazias. Não apaga nada, e esses canais continuam sem voltar nas descobertas. Os Novos não são tocados.
+- **Exportar aprovados (URLs):** abre um texto com a URL de cada canal da aba Aprovados, uma por linha, pronto para copiar ou salvar. Só entram os aprovados ainda não arquivados; para incluir os arquivados, use `/api/exportar?arquivados=true`.
+- **Inscrever aprovados no MeTube:** envia ao MeTube, um por vez, os aprovados que ainda não foram enviados. Só aparece com o MeTube ligado.
+- **Busca:** filtra a aba aberta por nome, @handle, ID do canal ou semente.
+
 ### Estados dos candidatos
 
 - `novo` pode ir para `aprovado` ou `descartado`; `aprovado` e `descartado` podem trocar entre si enquanto não forem arquivados.
